@@ -1,0 +1,28 @@
+# secrets -- never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# downloaded / generated data
+.cache/
+logs/
+results.html
+results.csv
+universe/*.csv
+*.pkl
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
