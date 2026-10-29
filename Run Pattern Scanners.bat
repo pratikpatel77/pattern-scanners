@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Pattern Scanners
+title Pattern Scanner - SAI Research
 
 python -c "import pandas, numpy, requests, dotenv, pyotp" >nul 2>&1
 if errorlevel 1 (
@@ -10,6 +10,12 @@ if errorlevel 1 (
     echo.
     call setup.bat
 )
+
+if exist results.html (
+    set "REFRESH="
+    set /p REFRESH="  Fetch fresh prices and rescan? [y/N]: "
+)
+if exist results.html if /I not "%REFRESH%"=="y" goto workspace
 
 echo ==================================================
 echo   PRE-BREAKOUT PATTERN SCANNERS
@@ -59,8 +65,21 @@ if "%t%"=="2" set TF=daily
 if "%t%"=="3" set TF=weekly
 
 echo.
-python scan.py %SRC% --scanners %SC% --tf %TF% --open
+python scan.py %SRC% --scanners %SC% --tf %TF%
+if errorlevel 1 (
+    echo Scan did not finish. Previous results will remain available.
+    pause
+)
 
-echo.
-echo   Done. Press any key to close.
-pause >nul
+:workspace
+python -c "from kronos_model import Kronos" >nul 2>&1
+if errorlevel 1 (
+    python -m pip install -r requirements-kronos.txt
+    if errorlevel 1 (
+        pause
+        exit /b 1
+    )
+)
+echo Opening Pattern Scanner with AI predictions. Keep this window open.
+python kronos_dashboard.py
+if errorlevel 1 pause

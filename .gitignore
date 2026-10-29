@@ -27,3 +27,11 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# local Kronos runtime and generated research outputs
+.venv-kronos/
+Kronos-master/
+Kronos-master.zip
+kronos_results.csv
+kronos_results.html
+kronos_results.json

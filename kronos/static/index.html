@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SAI RESEARCH · Pattern Scanner</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/vendor/plotly.min.js"></script>
+  <script defer src="/charts.js"></script><script defer src="/workflow.js"></script><script defer src="/app.js"></script>
+</head>
+<body data-page="research">
+<header class="topbar">
+  <a class="brand" href="/" target="_top" aria-label="Pattern Scanner home"><img class="brand-photo" src="/assets/sai-baba.jpg" alt="Sai Baba"><span>SAI <small>RESEARCH</small></span></a>
+  <nav aria-label="Workspace"><button class="nav-tab active" data-page="research">Prediction</button><button class="nav-tab" data-page="performance">Backtest</button><button class="nav-tab" data-page="runs">Run history <span id="run-count" class="count">0</span></button></nav>
+  <div class="top-right"><span class="local-dot"></span><span>Local workspace</span><a href="/" target="_top" rel="noopener" class="scanner-link">Pattern scanner ↗</a></div>
+</header>
+<div id="notice" class="notice hidden" role="status"><span></span><button aria-label="Dismiss message">×</button></div>
+<div id="job" class="job hidden" role="status"><div class="job-copy"><span class="spinner"></span><strong id="job-title">Preparing forecast</strong><span id="job-message"></span></div><div class="progress-track"><div id="job-progress"></div></div><button id="cancel-job" class="button subtle small">Cancel</button></div>
+<div class="workspace">
+  <aside class="watchlist">
+    <div class="section-heading"><div><span class="eyebrow">FROM YOUR SCANNER</span><h2>Pattern setups</h2></div><span id="setup-count" class="count">—</span></div>
+    <div class="search-wrap"><span>⌕</span><input id="setup-search" type="search" placeholder="Find a setup" aria-label="Search pattern setups"></div>
+    <div class="watch-filters"><select id="setup-filter" aria-label="Filter pattern"><option value="all">All patterns</option><option value="stage">Stage 1 → 2</option><option value="darvas">Darvas box</option><option value="cup">Cup & handle</option></select><button id="scan-cache" class="button subtle small" title="Run existing detectors on cached bars">Refresh setups</button></div>
+    <div class="list-head"><span>SYMBOL / PATTERN</span><span>SCORE</span></div>
+    <div id="setup-list" class="setup-list" aria-label="Pattern setups"></div>
+    <div class="watch-footer"><span class="local-dot"></span> Uses your scanner's cached data.<br><span>Run the original scanner to fetch fresh bars.</span></div>
+  </aside>
+
+  <main>
+    <div class="asset-bar">
+      <div class="asset-search"><input id="symbol-input" list="symbol-options" autocomplete="off" aria-label="Symbol from scanner cache" placeholder="Choose symbol"><datalist id="symbol-options"></datalist><button id="load-symbol" class="button subtle small">Load</button></div>
+      <div class="segmented" id="timeframes" aria-label="Timeframe"><button data-tf="D" class="selected">Daily</button><button data-tf="W">Weekly</button></div>
+      <details class="replay-control"><summary>Historical replay</summary><label>Review date <input type="date" id="asof" aria-label="Forecast origin date"></label></details><button id="latest" class="button subtle small">Latest prices</button><button id="quick-forecast" class="button primary small">Analyze prediction ↗</button>
+    </div>
+
+  <section class="controls forecast-controls">
+    <div class="section-heading"><div><span class="eyebrow">ONE SHARED FORECAST SETUP</span><h2>Forecast period</h2></div><span id="settings-dirty" class="badge hidden">EDITED</span></div>
+    <form id="settings-form">
+      <label>Forecast period<select name="horizon" id="holding-period" aria-label="Forecast period"></select></label>
+      <button id="forecast-button" type="button" class="button primary full">Analyze prediction <span>↗</span></button>
+      <button id="save-settings" type="button" class="text-button full">Save forecast period</button>
+
+      <details class="settings-details"><summary>What the probabilities mean</summary><p class="footnote">Kronos-small uses 32 sampled paths. The breakout figure is the share of sampled paths that confirm above the detected pivot and reach the pattern target before invalidation. It is not a calibrated probability of a real breakout. The model uses 128 historical bars with fixed sampling settings.</p><p class="footnote">The shaded range covers the 10th–90th percentiles of sampled prices. Check its actual coverage and price error in Backtest before relying on it. Saved results retain their original settings.</p></details>
+    </form>
+  </section>
+    <section class="card daily-watch">
+      <div class="card-title"><h2>Daily watch</h2><button id="watch-symbol" class="button subtle small">Watch selected stock</button></div>
+      <p class="footnote">Checks the scanner cache every minute while this app runs. New completed daily candles trigger fresh forecasts using your shared forecast period. Run the original scanner for fresh prices. No automatic retraining.</p>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>Stock / data date</th><th>Status</th><th>Outlook change</th><th>Latest scored forecast</th><th>Actions</th></tr></thead><tbody id="watch-rows"><tr><td colspan="5">No watched stocks yet.</td></tr></tbody></table></div>
+    </section>
+    <section id="research-page" class="page">
+      <div class="asset-heading"><div><div class="eyebrow">PREDICTION · PROBABILITY · QUALITY</div><h1><span id="asset-title">Choose a symbol</span><span id="timeframe-label" class="badge">DAILY</span></h1><p id="asset-subtitle" class="muted">Load cached market data to begin.</p></div><div class="price-block"><strong id="last-price">—</strong><span id="last-change">—</span></div></div>
+      <div id="data-note" class="inline-note hidden"></div>
+      <section id="review-card" class="card review-card" aria-live="polite"><span class="eyebrow">PREDICTION QUALITY</span><h2 id="review-title">Select a scanner setup</h2><p id="review-reason">Choose a stock to compare predicted paths with later actual prices.</p><details class="quality-details"><summary>Quality details</summary><table class="plain-table"><tbody id="review-checks"></tbody></table></details><button id="edit-period" class="text-button">Forecast period ↓</button> <button id="test-this-setup" class="text-button">Check prediction quality →</button></section><table class="metrics research-metrics" aria-label="Forecast summary"><thead><tr><th>Forecast end price</th><th>Possible end range</th><th>Target reached in AI paths</th></tr></thead><tbody><tr><td id="median-finish">—</td><td id="end-range">—</td><td id="success-rate">—</td></tr></tbody></table>
+      <section class="card chart-card">
+        <div class="chart-top"><div class="chart-legend"><span><i class="legend-line observed"></i>Observed price</span><span><i class="legend-line forecast"></i>AI median</span><span><i class="legend-band"></i>AI range</span><span id="actual-legend" class="hidden"><i class="legend-line actual"></i>Actual after forecast</span></div><span id="chart-state" class="badge">HISTORY</span></div>
+        <div class="chart-toolbar"><div class="segmented compact"><button id="candles-view" class="selected">Candles</button><button id="line-view">Line</button></div><label><input id="show-volume" type="checkbox" checked> Volume</label><label><input id="show-sma20" type="checkbox"> MA 20</label><label><input id="show-sma50" type="checkbox"> MA 50</label><label><input id="show-band" type="checkbox" checked> AI range</label><button id="reset-chart" class="text-button">Reset zoom</button><button id="save-chart" class="text-button">Save chart ↓</button></div>
+        <div id="price-chart" class="price-chart" aria-label="Interactive historical and forecast price chart"></div>
+        <div class="chart-bottom"><div class="range-buttons"><button data-range="30">1M</button><button data-range="90">3M</button><button data-range="180">6M</button><button data-range="all" class="selected">All</button></div><span>Scroll to zoom · drag to pan · hover for prices</span></div>
+      </section>
+      <div class="research-bottom">
+        <section class="card"><div class="card-title"><h2>Model outlook</h2><span id="bias-badge" class="badge">NOT RUN</span></div><p id="outlook-text" class="outlook-text">Generate a forecast to see the model's price range and directional bias.</p><div id="outcome-bars" class="outcome-bars"></div><p id="sample-note" class="footnote">Observed prices are market data. Dashed lines and shaded ranges are AI forecasts.</p></section>
+        <section class="card"><div class="card-title"><h2>Forecast vs actual</h2><button id="refresh-comparison" class="text-button">Check latest cache</button></div><p id="comparison-status" class="muted">Actual prices appear here as later bars become available.</p><table class="plain-table"><tbody id="comparison-metrics"><tr><td>Mean absolute error</td><td>—</td></tr><tr><td>Unchanged-price baseline</td><td>—</td></tr><tr><td>AI range coverage</td><td>—</td></tr></tbody></table></section>
+      </div>
+      <details class="method-card"><summary>Method, data quality & run details</summary><div id="method-content">Model and data details will appear after a forecast.</div></details>
+    </section>
+
+    <section id="performance-page" class="page hidden">
+      <div class="page-heading"><div class="eyebrow">TEST BEFORE YOU TRUST</div><h1>Prediction performance</h1><p class="muted">Check whether past forecasts helped this stock. Compare them with actual prices and a simple unchanged-price baseline.</p></div>
+      <section class="card test-form"><div class="test-target"><span class="eyebrow">SELECTED ASSET</span><strong id="test-symbol">—</strong><small id="test-timeframe">Daily bars</small></div><label>Start date<input id="test-start" type="date"></label><label>End date<input id="test-end" type="date"></label><input id="test-windows" type="hidden" value="3"><button id="run-backtest" class="button primary">Run backtest</button><p class="footnote">Uses the same forecast period across up to 3 separate historical windows. Each forecast only sees prices available at the time.</p></section>
+      <div id="performance-empty" class="empty-state"><div class="empty-icon">↗</div><h2>A fair test starts here</h2><p>Choose a date range and run a backtest.<br>Price accuracy, breakout outcomes and forecast comparisons will appear below.</p></div>
+      <div id="performance-result" class="hidden">
+        <div class="result-heading"><h2 id="backtest-title">Backtest results</h2><span id="backtest-badge" class="badge">RESEARCH SAMPLE</span></div>
+        <table class="metrics performance-metrics"><thead><tr><th>AI error · MAE</th><th>Baseline error</th><th>Direction accuracy</th><th>AI range coverage</th></tr></thead><tbody><tr><td id="bt-mae">—</td><td id="bt-baseline">—</td><td id="bt-direction">—</td><td id="bt-coverage">—</td></tr></tbody></table>
+        <div id="baseline-note" class="inline-note"></div>
+        <section class="card"><div class="card-title"><div><h2>Predicted vs actual price</h2><p class="muted small-copy">Select a historical window to inspect the forecast made at that time.</p></div><select id="window-select" aria-label="Backtest window"></select></div><div class="chart-top"><div class="chart-legend"><span><i class="legend-line observed"></i>Observed price</span><span><i class="legend-line forecast"></i>AI median</span><span><i class="legend-band"></i>AI range</span><span><i class="legend-line actual"></i>Actual after forecast</span></div></div><div id="backtest-chart" class="price-chart"></div></section>
+        <section class="card"><div class="card-title"><h2>Breakout prediction quality</h2></div><table class="plain-table"><tbody id="quality-metrics"></tbody></table><p class="footnote">Brier error compares the sampled breakout frequency with the observed outcome; lower is better. Historical fit does not establish calibrated live probabilities.</p></section>
+        <section class="card"><div class="card-title"><h2>Window results</h2><div class="export-actions"><button id="export-backtest-csv" class="text-button">CSV ↓</button><button id="export-backtest-json" class="text-button">JSON ↓</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Forecast origin</th><th>Pattern</th><th>AI MAE</th><th>Baseline MAE</th><th>Direction</th><th>Predicted breakout</th><th>Actual outcome</th></tr></thead><tbody id="window-rows"></tbody></table></div></section>
+        <p id="backtest-limits" class="footnote"></p>
+      </div>
+    </section>
+
+    <section id="runs-page" class="page hidden"><div class="page-heading"><div class="eyebrow">REPRODUCIBLE RESEARCH</div><h1>Run history</h1><p class="muted">One strategy setup. Saved forecasts and tests keep their original settings and model details.</p></div><section class="card"><div class="card-title"><h2>Saved runs</h2><button id="refresh-runs" class="button subtle small">Refresh</button></div><div class="table-scroll"><table class="data-table runs-table"><thead><tr><th>Created</th><th>Type / asset</th><th>Model</th><th>Horizon / paths</th><th>Status</th><th>Actions</th></tr></thead><tbody id="run-rows"></tbody></table></div></section></section>
+    <footer class="main-footer">Kronos is a research model. Forecasts can be wrong. Sample rates are not calibrated market probabilities.</footer>
+  </main>
+
+
+</div>
+</body></html>

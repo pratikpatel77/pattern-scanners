@@ -82,6 +82,30 @@ A replay of ~4,000 setups (Sep 2025 - Jul 2026, next 40 trading days) found no
 meaningful difference in breakout rate or forward return between "Accumulation" and
 "Caution" setups. Use it as context when reading a chart, not as a ranking or a buy/sell filter.
 
+## Pattern Scanner with Kronos AI
+
+Double-click **Run Pattern Scanners.bat**. Choose whether to refresh prices or
+open the saved scanner report. Keep the launcher window open and use
+http://127.0.0.1:8765.
+
+Pattern Scanner is the home screen. Click **AI** beside a stock to open its
+symbol and timeframe in the AI prediction tab. SAI Research includes sampled
+price forecasts, interactive charts, daily monitoring, historical tests and
+forecast-versus-actual quality checks. It uses one shared forecast profile.
+
+Daily Watch checks the scanner cache for completed candles; run the scanner to
+fetch new prices. Forecasts are sampled scenarios, and their frequencies are
+not calibrated market probabilities. Model weights do not retrain automatically.
+
+Install AI dependencies manually if needed:
+
+```bash
+pip install -r requirements-kronos.txt
+python kronos_dashboard.py
+```
+
+See [KRONOS.md](KRONOS.md) for usage, limitations and legacy CLI options.
+
 ## Command line
 
 ```bash

@@ -36,6 +36,7 @@ class Signal:
     chart: dict = field(default_factory=dict)     # closes + reference lines for the report sparkline
     zones: dict = field(default_factory=dict)     # bar indices of the pattern, for volume/delivery analysis
     analysis: dict = field(default_factory=dict)  # filled in by analysis.py after the scan
+    kronos: dict = field(default_factory=dict)    # filled in by kronos_breakout.py if --kronos is used
 
     @property
     def distance_pct(self) -> float:

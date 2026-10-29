@@ -78,6 +78,8 @@ th.l,td.l{text-align:left}
 .dot.good{background:var(--green)}.dot.flat{background:var(--muted);opacity:.5}.dot.bad{background:var(--red)}
 footer{color:var(--muted);font-size:.78rem;margin-top:1.5rem;line-height:1.6}
 svg.spark{display:block}
+.kronos-cell{cursor:pointer;min-width:180px}
+.kronos-cell:hover .v{text-decoration:underline}
 """
 
 SCRIPT = r"""
@@ -88,13 +90,21 @@ let active = DATA.scanners[0].name, tf = 'all', sortKey = 'score', sortDir = -1;
 function fmt(v, d=2){ return v==null ? '' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function spark(ch){
   const w=150,h=40,p=3, xs=ch.closes; if(!xs||xs.length<2) return '';
-  const vals=xs.concat(Object.values(ch.lines)); const lo=Math.min(...vals), hi=Math.max(...vals), span=(hi-lo)||1;
-  const X=i=>p+i*(w-2*p)/(xs.length-1), Y=v=>h-p-(v-lo)*(h-2*p)/span;
+  const preds=ch.pred_closes||[];
+  const totalPoints = xs.length + preds.length;
+  const vals=xs.concat(preds, Object.values(ch.lines)); const lo=Math.min(...vals), hi=Math.max(...vals), span=(hi-lo)||1;
+  const X=i=>p+i*(w-2*p)/(Math.max(1, totalPoints-1)), Y=v=>h-p-(v-lo)*(h-2*p)/span;
   let s=`<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`;
-  if(ch.zone_start!=null) s+=`<rect x="${X(ch.zone_start)}" y="0" width="${w-X(ch.zone_start)}" height="${h}" fill="var(--zone)"/>`;
+  if(ch.zone_start!=null) s+=`<rect x="${X(ch.zone_start)}" y="0" width="${X(xs.length-1)-X(ch.zone_start)}" height="${h}" fill="var(--zone)"/>`;
   const col={pivot:'var(--green)',support:'var(--red)',ma:'var(--amber)',bottom:'var(--muted)'};
   for(const [k,v] of Object.entries(ch.lines)) s+=`<line x1="${p}" x2="${w-p}" y1="${Y(v)}" y2="${Y(v)}" stroke="${col[k]||'var(--muted)'}" stroke-width="1" stroke-dasharray="3 2"><title>${k} ${v}</title></line>`;
-  s+=`<polyline fill="none" stroke="var(--line)" stroke-width="1.3" points="${xs.map((v,i)=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ')}"/></svg>`;
+  if(ch.pred_target) s+=`<line x1="${X(xs.length-1)}" x2="${w-p}" y1="${Y(ch.pred_target)}" y2="${Y(ch.pred_target)}" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="2 2"><title>target ${ch.pred_target}</title></line>`;
+  s+=`<polyline fill="none" stroke="var(--line)" stroke-width="1.3" points="${xs.map((v,i)=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ')}"/>`;
+  if(preds.length > 0){
+    const predPts = [[xs.length-1, xs[xs.length-1]]].concat(preds.map((v,i)=>[xs.length+i, v]));
+    s+=`<polyline fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="3 2" points="${predPts.map(([i,v])=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ')}"/>`;
+  }
+  s+=`</svg>`;
   return s;
 }
 function tvLink(sym){ return 'https://www.tradingview.com/chart/?symbol=NSE:'+encodeURIComponent(sym.replace(/-/g,'_')); }
@@ -103,7 +113,7 @@ function esc(t){ const d=document.createElement('div'); d.textContent=t; return 
 
 function openAnalysis(i){
   const r = DATA.signals[i], a = r.analysis;
-  if(!a) return;
+  if(!a || !a.sections) return;
   const m = document.getElementById('modal');
   const tfName = r.tf==='W' ? 'Weekly' : 'Daily';
   const p = a.pressure, w = Math.min(50, Math.abs(p)/2);
@@ -121,6 +131,27 @@ function openAnalysis(i){
   m.querySelector('.body').innerHTML = h;
   m.classList.add('on');
 }
+function openKronos(i){
+  const r = DATA.signals[i], k = r.kronos;
+  if(!k || !k.sections) return;
+  const m = document.getElementById('modal');
+  const tfName = r.tf==='W' ? 'Weekly' : 'Daily';
+  m.querySelector('h2').textContent = r.symbol + '  \u00b7  ' + k.verdict;
+  m.querySelector('.sub2').textContent = 'Kronos Foundation Model \u00b7 ' + tfName
+      + ' \u00b7 Close ' + fmt(r.close) + ' \u00b7 Pivot ' + fmt(r.pivot) + ' \u00b7 Target ' + fmt(k.target);
+  const prob = k.probability, w = Math.min(100, Math.max(0, prob));
+  let h = '<p class="lead">' + esc(k.headline) + '</p>'
+    + '<div class="meter"><b class="pos" style="left:0;width:' + w + '%"></b></div>'
+    + '<div class="meter-note"><span>Breakout Probability</span><span>' + prob + '% (R:R ' + k.rr + 'x)</span></div>';
+  for(const sec of k.sections){
+    h += '<div class="sec"><h3>' + esc(sec.title) + '</h3><ul>'
+      + sec.bullets.map(b=>'<li><span class="dot ' + b.tone + '"></span><span>' + esc(b.text) + '</span></li>').join('')
+      + '</ul></div>';
+  }
+  m.querySelector('.body').innerHTML = h;
+  m.classList.add('on');
+}
+
 function closeAnalysis(){ document.getElementById('modal').classList.remove('on'); }
 
 function render(){
@@ -134,15 +165,22 @@ function render(){
   let rows = DATA.signals.filter(s=>s.scanner===active && (tf==='all'||s.tf===tf) && s.symbol.includes(q) && s.score>=minScore && (isNaN(maxDist)||s.distance<=maxDist));
   const val = r => {
     if(sortKey==='analysis') return r.analysis ? r.analysis.pressure : -999;
+    if(sortKey==='kronos') return r.kronos ? r.kronos.score : -999;
     const v = sortKey in r ? r[sortKey] : r.metrics[sortKey];
     return Array.isArray(v) ? v.length : v;
   };
   rows.sort((a,b)=>{ const x=val(a), y=val(b); if(x==null) return 1; if(y==null) return -1;
     return (typeof x==='string' ? x.localeCompare(y) : x-y) * sortDir; });
 
+  const hasKronos = DATA.signals.some(s=>s.kronos!=null);
   const mkeys = sc.metric_keys;
-  const cols = [['symbol','Symbol','l'],['score','Score',''],['chart','Pattern','l'],['close','Close',''],['pivot','Pivot',''],
-    ['distance','To pivot %',''],['support','Stop',''],['risk','Risk %',''],['label','Phase','l'],['analysis','Analysis','l'],['notes','Signals','l'],...mkeys.map(k=>[k,k,''])];
+  const baseCols = [['symbol','Symbol','l'],['score','Score',''],['chart','Pattern','l'],['close','Close',''],['pivot','Pivot',''],
+    ['distance','To pivot %',''],['support','Stop',''],['risk','Risk %',''],['label','Phase','l']];
+  if(hasKronos){
+    baseCols.push(['kronos','Kronos Breakout','l']);
+  }
+  baseCols.push(['analysis','Analysis','l'],['notes','Signals','l']);
+  const cols = [...baseCols, ...mkeys.map(k=>[k,k,''])];
   const head = cols.map(([k,l,c])=>`<th class="${c}" data-k="${k}">${l}${sortKey===k?(sortDir>0?' ▲':' ▼'):''}</th>`).join('');
   const body = rows.map(r=>{
     const both = DATA.signals.some(o=>o.scanner===r.scanner && o.symbol===r.symbol && o.tf!==r.tf);
@@ -154,17 +192,21 @@ function render(){
       + `</td><td><span class="score"><i><b style="width:${r.score}%"></b></i>${Math.round(r.score)}</span></td>`
       + `<td class="l">${spark(r.chart)}</td><td>${fmt(r.close)}</td><td>${fmt(r.pivot)}</td>`
       + `<td class="dist">${fmt(r.distance)}</td><td>${fmt(r.support)}</td><td class="risk">${fmt(r.risk,1)}</td><td class="l">${r.label}</td>`
+      + (hasKronos ? (r.kronos ? `<td class="l kronos-cell" data-i="${r.i}" title="Click for the full Kronos AI forecast"><span class="v ${r.kronos.tone || 'good'}">${r.kronos.verdict || ''}</span><span class="chips">${(r.kronos.chips||[]).join(' \u00b7 ')}</span></td>` : '<td class="l"></td>') : '')
       + (r.analysis
-          ? `<td class="l ana" data-i="${r.i}" title="Click for the full volume + delivery read"><span class="v ${vTone(r.analysis.verdict)}">${r.analysis.verdict}</span><span class="chips">${r.analysis.chips.join(' \u00b7 ')}</span></td>`
+          ? `<td class="l ana" data-i="${r.i}" title="Click for the full volume + delivery read"><span class="v ${vTone(r.analysis.verdict)}">${r.analysis.verdict || ''}</span><span class="chips">${(r.analysis.chips||[]).join(' \u00b7 ')}</span></td>`
           : '<td class="l"></td>')
-      + `<td class="l notes">${r.notes.join(' · ')}</td>`
-      + mkeys.map(k=>`<td>${r.metrics[k]==null?'':r.metrics[k]}</td>`).join('')
+      + `<td class="l notes">${(r.notes||[]).join(' · ')}</td>`
+      + mkeys.map(k=>`<td>${(r.metrics && r.metrics[k]!=null) ? r.metrics[k] : ''}</td>`).join('')
       + '</tr>';
   }).join('');
   document.getElementById('table').innerHTML = rows.length
     ? `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
     : '<div class="empty">No setups match these filters.</div>';
   document.querySelectorAll('#table td.ana').forEach(td=>td.onclick=()=>openAnalysis(+td.dataset.i));
+  if(hasKronos){
+    document.querySelectorAll('#table td.kronos-cell').forEach(td=>td.onclick=()=>openKronos(+td.dataset.i));
+  }
   document.querySelectorAll('#table th').forEach(th=>th.onclick=()=>{
     const k=th.dataset.k; if(k==='chart') return;
     if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir=['symbol','label','distance','risk'].includes(k)?1:-1; } render(); });
@@ -205,6 +247,7 @@ def write_html(path, signals, scanner_names, tfs, meta):
             {
                 "i": i,
                 "analysis": s.analysis or None,
+                "kronos": getattr(s, "kronos", None) or None,
                 "scanner": s.scanner, "symbol": s.symbol, "tf": s.tf, "date": str(s.date),
                 "score": s.score, "close": round(s.close, 2), "pivot": round(s.pivot, 2),
                 "distance": round(s.distance_pct, 2), "support": round(s.support, 2), "risk": round(s.risk_pct, 2),

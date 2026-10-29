@@ -11,7 +11,7 @@ Examples:
     python scan.py --scanners cup --tf weekly
     python scan.py --symbols DIVISLAB,RELIANCE --asof 2026-07-08
     python scan.py --offline                         # re-scan cached bars, no API calls
-    python scan.py --source local --data-dir ../rs-strategy-backtest/.cache/definedge_ohlcv
+    python scan.py --source local --data-dir ../../Strategies/rs-strategy-backtest/.cache/definedge_ohlcv
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from datetime import datetime
 import pandas as pd
 
 from analysis import analyse
+from kronos_breakout import is_kronos_available, predict_signals
 from datalayer import BENCHMARK, SOURCES, AuthError, BarStore, get_source, resample
 from datalayer.delivery import DeliveryStore
 from datalayer.timeframe import TIMEFRAMES
@@ -130,6 +131,7 @@ def run_scanners(bars, bench, scanner_names, tfs, args, delivery=None):
 
 
 def print_summary(signals, scanner_names, tfs, limit=15):
+    has_kronos = any(bool(getattr(s, "kronos", None)) for s in signals)
     for name in scanner_names:
         for tf in tfs:
             rows = [s for s in signals if s.scanner == name and s.tf == tf]
@@ -137,25 +139,48 @@ def print_summary(signals, scanner_names, tfs, limit=15):
             print(f"\n=== {REGISTRY[name].TITLE} -- {tf_label}: {len(rows)} setups ===")
             if not rows:
                 continue
-            print(f"{'Symbol':<14}{'Score':>6}{'Close':>11}{'Pivot':>11}{'Dist%':>7}{'Risk%':>7}  {'Volume+Delivery':<20}Label")
-            for s in rows[:limit]:
-                verdict = (s.analysis or {}).get("verdict", "")
-                print(f"{s.symbol:<14}{s.score:>6.0f}{s.close:>11.2f}{s.pivot:>11.2f}{s.distance_pct:>7.2f}{s.risk_pct:>7.1f}  {verdict:<20}{s.label}")
+            if has_kronos:
+                print(f"{'Symbol':<12}{'Score':>5}{'Close':>9}{'Pivot':>9}{'Dist%':>6}  {'Kronos AI Breakout':<20}{'P(BO)':>6}{'Target':>9}  {'Volume+Delivery':<18}Label")
+                for s in rows[:limit]:
+                    verdict = (s.analysis or {}).get("verdict", "")
+                    k = getattr(s, "kronos", None) or {}
+                    k_verdict = k.get("verdict", "-")
+                    k_prob = f"{k.get('probability', 0):.0f}%" if "probability" in k else "-"
+                    k_target = f"{k.get('target', 0):.1f}" if "target" in k else "-"
+                    print(f"{s.symbol:<12}{s.score:>5.0f}{s.close:>9.2f}{s.pivot:>9.2f}{s.distance_pct:>6.1f}  {k_verdict:<20}{k_prob:>6}{k_target:>9}  {verdict:<18}{s.label}")
+            else:
+                print(f"{'Symbol':<14}{'Score':>6}{'Close':>11}{'Pivot':>11}{'Dist%':>7}{'Risk%':>7}  {'Volume+Delivery':<20}Label")
+                for s in rows[:limit]:
+                    verdict = (s.analysis or {}).get("verdict", "")
+                    print(f"{s.symbol:<14}{s.score:>6.0f}{s.close:>11.2f}{s.pivot:>11.2f}{s.distance_pct:>7.2f}{s.risk_pct:>7.1f}  {verdict:<20}{s.label}")
             if len(rows) > limit:
                 print(f"  ... {len(rows) - limit} more in the report")
 
 
 def write_csv(path, signals):
+    has_kronos = any(bool(getattr(s, "kronos", None)) for s in signals)
     metric_keys = list(dict.fromkeys(k for s in signals for k in s.metrics))
+    header = ["scanner", "timeframe", "symbol", "date", "score", "close", "pivot", "distance_pct", "support", "risk_pct",
+              "label", "verdict", "pressure"]
+    if has_kronos:
+        header.extend(["kronos_verdict", "kronos_score", "kronos_prob", "kronos_target", "kronos_gain_pct", "kronos_rr", "kronos_bars"])
+    header.extend([*metric_keys, "notes", "analysis"])
+
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["scanner", "timeframe", "symbol", "date", "score", "close", "pivot", "distance_pct", "support", "risk_pct",
-                    "label", "verdict", "pressure", *metric_keys, "notes", "analysis"])
+        w.writerow(header)
         for s in signals:
             a = s.analysis or {}
-            w.writerow([s.scanner, s.tf, s.symbol, s.date, s.score, round(s.close, 2), round(s.pivot, 2), round(s.distance_pct, 2),
-                        round(s.support, 2), round(s.risk_pct, 2), s.label, a.get("verdict", ""), a.get("pressure", ""),
-                        *[s.metrics.get(k, "") for k in metric_keys], "; ".join(s.notes), a.get("headline", "")])
+            k = getattr(s, "kronos", None) or {}
+            row = [s.scanner, s.tf, s.symbol, s.date, s.score, round(s.close, 2), round(s.pivot, 2), round(s.distance_pct, 2),
+                   round(s.support, 2), round(s.risk_pct, 2), s.label, a.get("verdict", ""), a.get("pressure", "")]
+            if has_kronos:
+                row.extend([
+                    k.get("verdict", ""), k.get("score", ""), k.get("probability", ""),
+                    k.get("target", ""), k.get("gain_pct", ""), k.get("rr", ""), k.get("bars_to_breakout", "")
+                ])
+            row.extend([*[s.metrics.get(mk, "") for mk in metric_keys], "; ".join(s.notes), a.get("headline", "")])
+            w.writerow(row)
 
 
 def main():
@@ -182,6 +207,12 @@ def main():
     ap.add_argument("--csv", default="results.csv")
     ap.add_argument("--no-html", action="store_true")
     ap.add_argument("--open", action="store_true", help="open the HTML report when done")
+    ap.add_argument("--kronos", action="store_true", help="predict breakout success and targets using Kronos foundation model")
+    ap.add_argument("--kronos-model", default="small", help="Kronos model: 'small' (default), 'mini', 'base', or HuggingFace repo path")
+    ap.add_argument("--kronos-device", default=None, help="device: 'cpu', 'cuda:0', or auto")
+    ap.add_argument("--kronos-samples", type=int, default=3, help="Monte Carlo trajectory samples (default 3)")
+    ap.add_argument("--kronos-horizon-d", type=int, default=15, help="daily forecast horizon in bars (default 15)")
+    ap.add_argument("--kronos-horizon-w", type=int, default=6, help="weekly forecast horizon in bars (default 6)")
     args = ap.parse_args()
 
     if args.source == "local" and not args.data_dir:
@@ -207,6 +238,25 @@ def main():
     log(f"Scanned {len(bars)} symbols x {len(tfs)} timeframes x {len(scanner_names)} scanners in {time.time() - t1:.1f}s "
         f"({illiquid} skipped below Rs {args.min_turnover:g} Cr turnover)")
 
+    if args.kronos:
+        if not is_kronos_available():
+            log("\nERROR: Kronos dependencies not found. Please install with:")
+            log("  pip install torch einops huggingface_hub safetensors")
+            sys.exit(1)
+        log(f"\nRunning Kronos ({args.kronos_model}) breakout predictions for {len(signals)} setups...")
+        t_kronos = time.time()
+        predict_signals(
+            signals,
+            bars,
+            model=args.kronos_model,
+            device=args.kronos_device,
+            horizon_d=args.kronos_horizon_d,
+            horizon_w=args.kronos_horizon_w,
+            samples=args.kronos_samples,
+            verbose=True,
+        )
+        log(f"Kronos predictions completed in {time.time() - t_kronos:.1f}s")
+
     print_summary(signals, scanner_names, tfs)
 
     if args.csv:
@@ -215,7 +265,7 @@ def main():
     if not args.no_html:
         from report import write_html
 
-        write_html(args.html, signals, scanner_names, tfs, meta={
+        report_meta = {
             "source": src.name,
             "universe": universe_label,
             "scanned": len(bars),
@@ -223,7 +273,10 @@ def main():
             "asof": args.asof,
             "min_turnover": args.min_turnover,
             "delivery": delivery.coverage() if delivery else "off",
-        })
+        }
+        if args.kronos:
+            report_meta["kronos"] = f"Kronos ({args.kronos_model})"
+        write_html(args.html, signals, scanner_names, tfs, meta=report_meta)
         log(f"HTML -> {os.path.abspath(args.html)}")
         if args.open:
             webbrowser.open(f"file://{os.path.abspath(args.html)}")

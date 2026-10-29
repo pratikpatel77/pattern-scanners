@@ -1,0 +1,18 @@
+# Optional Kronos Foundation Model dependencies for Breakout Prediction
+# Install with:
+#   pip install -r requirements-kronos.txt
+# Or for CPU-only PyTorch:
+#   pip install torch --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-kronos.txt
+
+torch>=2.0.0
+einops>=0.8.0
+huggingface_hub>=0.20.0
+safetensors>=0.4.0
+tqdm>=4.66.0
+
+# Local research workspace (no web framework or chart CDN required)
+numpy>=1.26
+pandas>=2.2
+requests>=2.31
+python-dotenv>=1.0
+pyotp>=2.9
