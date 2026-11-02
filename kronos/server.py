@@ -58,15 +58,43 @@ def create_server(service,port=8765):
             query=parse_qs(route.query)
             try:
                 if route.path=='/api/health':
-                    self.send(200,{'app':'kronos-research','version':'2.0.0'}); return
+                    self.send(200,{'app':'kronos-research','version':'2.3.0'}); return
                 if route.path=='/api/bootstrap':
                     self.send(200,{**service.bootstrap(),'token':token}); return
                 if route.path=='/api/context':
-                    self.send(200,service.market.context(query.get('symbol',[''])[0],query.get('timeframe',['D'])[0],query.get('asof',[None])[0])); return
+                    self.send(200,service.market.context(query.get('symbol',[''])[0],query.get('timeframe',['D'])[0],query.get('asof',[None])[0], service.prices if query.get('fresh')==['1'] else None)); return
+                if route.path=='/api/market/status':
+                    self.send(200,service.refresh.status()); return
+                if route.path=='/api/quotes':
+                    import re
+                    symbols=list(dict.fromkeys(query.get('symbols',[''])[0].split(',')))
+                    if not 1<=len(symbols)<=50 or any(not re.fullmatch(r'[A-Z0-9&_-]{1,40}', s) for s in symbols):
+                        raise ValueError('Choose 1 to 50 valid NSE stock symbols.')
+                    self.send(200,service.prices.quotes(symbols)); return
                 if route.path=='/api/runs':
                     self.send(200,service.store.list()); return
                 if route.path=='/api/watch':
                     self.send(200,service.monitor.rows()); return
+                if route.path=='/api/desk/bootstrap':
+                    self.send(200,{**service.desk.bootstrap(),'token':token}); return
+                if route.path=='/api/desk/chain':
+                    self.send(200,service.desk.chain(query.get('symbol',[''])[0],query.get('expiry',[''])[0])); return
+                if route.path=='/api/desk/ai':
+                    self.send(200,service.desk.ai(query.get('symbol',[''])[0])); return
+                if route.path=='/api/desk/monitor':
+                    self.send(200,service.watch.snapshot()); return
+                if route.path=='/api/desk/context':
+                    self.send(200,service.desk.context(query.get('symbol',[''])[0])); return
+                if route.path=='/api/desk/ltp':
+                    self.send(200,service.desk.ltp(query.get('symbols',[''])[0].split(','))); return
+                if route.path=='/api/options':
+                    self.send(200,service.options.bootstrap()); return
+                if route.path=='/api/options/universe':
+                    self.send(200,{'symbols':service.options.market.universe()}); return
+                if route.path=='/api/options/contracts':
+                    self.send(200,service.options.contracts(query.get('analysis',[''])[0])); return
+                if route.path.startswith('/api/options/analysis/'):
+                    self.send(200,service.options.analysis(route.path.split('/')[-1])); return
                 if route.path.startswith('/api/runs/'):
                     key=route.path.split('/')[-1]
                     run=service.run(key)
@@ -85,11 +113,12 @@ def create_server(service,port=8765):
                         self.send(200,run,download=f'kronos-{key[:8]}.json'); return
                     self.send(200,run); return
                 if route.path=='/scanner':
-                    path=service.root/'results.html'
+                    path=service.directory/'scanner.html'
+                    if not path.exists(): path=service.root/'results.html'
                     if not path.exists(): raise FileNotFoundError('Run the original scanner to create its report.')
                     # Original report is served byte-for-byte; its inline JS needs its own CSP.
                     self.send_scanner(path); return
-                relative=('index.html' if route.path=='/ai' or (route.path=='/' and query.get('run')) else 'workspace.html') if route.path in ('/','/ai') else route.path.lstrip('/')
+                relative='desk.html' if route.path=='/options' else 'options.html' if route.path=='/options/classic' else (('index.html' if route.path=='/ai' or (route.path=='/' and query.get('run')) else 'workspace.html') if route.path in ('/','/ai') else route.path.lstrip('/'))
                 path=(STATIC/relative).resolve()
                 if STATIC.resolve() not in path.parents or not path.is_file():
                     self.send(404,{'error':'Not found'}); return
@@ -120,10 +149,36 @@ def create_server(service,port=8765):
                     settings=Settings.from_dict(request)
                     service.store.save_settings(settings)
                     self.send(200,settings.to_dict())
+                elif self.path=='/api/market/refresh':
+                    self.send(202,service.refresh.start())
                 elif self.path=='/api/jobs':
                     self.send(202,service.submit(request))
                 elif self.path=='/api/watch':
                     self.send(200,service.monitor.configure(request))
+                elif self.path=='/api/options/scan':
+                    self.send(202,service.options.submit(request))
+                elif self.path=='/api/options/settings':
+                    from .options import preferences
+                    values=preferences({**service.options.journal.settings(),**request})
+                    service.options.journal.save_settings(values)
+                    self.send(200,values)
+                elif self.path=='/api/options/reference':
+                    self.send(200,service.options.save_reference(request))
+                elif self.path=='/api/options/reprice':
+                    self.send(200,service.options.reprice(request))
+                elif self.path=='/api/desk/monitor/check':
+                    trade=str(request.get('id') or '') or None
+                    self.send(200,{'positions':service.watch.check(only=trade,force=bool(request.get('force')))})
+                elif self.path=='/api/desk/paper':
+                    self.send(200,service.desk.open_paper(request))
+                elif self.path=='/api/options/paper/open':
+                    self.send(200,service.options.open_paper(request))
+                elif self.path=='/api/options/paper/mark':
+                    self.send(200,service.options.mark_paper(request))
+                elif self.path=='/api/options/paper/mark-all':
+                    self.send(200,service.options.mark_all())
+                elif self.path=='/api/options/score':
+                    self.send(200,service.options.score_forecasts())
                 elif self.path.startswith('/api/cancel/'):
                     self.send(200,service.cancel(self.path.split('/')[-1]))
                 else:
@@ -165,6 +220,8 @@ def main(argv=None):
         return 1
     service.store.recover()
     service.monitor.start()
+    service.watch.start()
+    service.warm_fallback()
     print(f'Pattern Scanner + SAI Research: {url}\nKeep this window open. Press Ctrl+C to stop.',flush=True)
     if not args.no_open: webbrowser.open(url)
     try:

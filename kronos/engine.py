@@ -43,7 +43,7 @@ def trade_plan(history, signal, settings):
 
 
 def forecast(symbol, bars, settings, signal=None, predictor=None, future_dates=None,
-             progress=None, cancel=None):
+             progress=None, cancel=None, include_paths=False):
     check_cancel(cancel)
     if not isinstance(bars.index, pd.DatetimeIndex) or bars.index.has_duplicates or not bars.index.is_monotonic_increasing:
         raise ValueError('Bars must have unique, increasing timestamps.')
@@ -119,6 +119,8 @@ def forecast(symbol, bars, settings, signal=None, predictor=None, future_dates=N
         'notes':['AI paths are sampled scenarios, not calibrated market probabilities.',
                  'The band shows the 10th–90th percentiles of predicted closes; it is not a guaranteed range.',
                  'Pretrained model data may overlap historical test dates. These tests do not establish live trading accuracy.']}
+    if include_paths:
+        result['paths'] = [candles_json(p.assign(volume=0.)) for p in paths]
     if repair_count:
         result['notes'].append(f'{repair_count} decoded candles needed high/low bounds expanded to contain open and close.')
     if settings.samples<20:

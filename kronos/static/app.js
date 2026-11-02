@@ -19,6 +19,7 @@ async function api(path,body){
 function notice(message,error=false){$('notice').classList.remove('hidden');$('notice').classList.toggle('error',error);$('notice').querySelector('span').textContent=message;}
 function guarded(fn){return async event=>{try{await fn(event);}catch(error){notice(error.message,true);}};}
 function showPage(page){
+  if(page==='runs'&&state.token)refreshRuns().catch(error=>notice('Could not refresh saved history: '+error.message,true));
   document.body.dataset.page=page;
   for(const name of ['research','performance','runs'])$(name+'-page').classList.toggle('hidden',name!==page);
   document.querySelectorAll('.nav-tab').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
@@ -68,18 +69,20 @@ function renderHeader(data){
   $('symbol-input').value=data.symbol;$('asset-title').textContent=data.symbol;$('test-symbol').textContent=data.symbol;
   $('timeframe-label').textContent=state.tf==='D'?'DAILY':'WEEKLY';$('test-timeframe').textContent=state.tf==='D'?'Daily bars':'Weekly bars';
   const history=data.history||[],last=history.at(-1),previous=history.at(-2);
-  $('last-price').textContent=money(last?.close);
+  $('last-price').textContent='Fetching LTP…';
   const change=previous?(last.close/previous.close-1)*100:0;
   $('last-change').textContent=pct(change,true)+' · last bar';$('last-change').className=change>=0?'positive':'negative';
   const patterns=data.signals||[data.pattern].filter(Boolean);
-  $('asset-subtitle').textContent=`Scanner cache · ${prettyDate(data.asof)} · ${patterns.length?patterns.map(r=>patternName(r.scanner)).join(' / '):'No detected pattern at this date'}`;
+  $('asset-subtitle').textContent=`${data.source||'Saved forecast'} · candles through ${prettyDate(data.asof)} · ${patterns.length?patterns.map(r=>patternName(r.scanner)).join(' / '):'No detected pattern at this date'}`;
   const notes=[];
   const age=Math.floor((Date.now()-new Date(data.asof+'T15:30:00+05:30').getTime())/86400000);
-  if(age>1)notes.push(`Data view ends ${prettyDate(data.asof)}. Fetch newer bars with the original scanner when needed.`);
+  if(data.refresh_error)notes.push(data.refresh_error+' Showing saved candles.');
+  else if(age>3)notes.push(`Candles end ${prettyDate(data.asof)}. Use Refresh prices to fetch newer data.`);
   if(data.partial_week||data.metadata?.partial_week)notes.push('This weekly candle may still be forming.');
   $('data-note').textContent=notes.join(' ');$('data-note').classList.toggle('hidden',!notes.length);$('data-note').classList.add('warning');
   if(!$('test-end').value&&history.length){$('test-end').value=history.at(-1).date;$('test-start').value=history[Math.max(0,history.length-100)].date;}
   renderSetups();
+  refreshLivePrice();
 }
 function clearForecast(){
   state.forecast=null;state.forecastId=null;
@@ -95,8 +98,8 @@ function clearForecast(){
 async function loadContext(symbol=state.symbol,asof=$('asof').value){
   symbol=symbol.trim().toUpperCase();if(!symbol)throw new Error('Choose a symbol first.');
   const sequence=++state.contextSequence;
-  const query=new URLSearchParams({symbol,timeframe:state.tf});if(asof)query.set('asof',asof);
-  $('asset-subtitle').textContent='Loading cached market data…';
+  const query=new URLSearchParams({symbol,timeframe:state.tf,fresh:'1'});if(asof)query.set('asof',asof);
+  $('asset-subtitle').textContent='Fetching latest completed candles…';
   const context=await api('/api/context?'+query);
   if(sequence!==state.contextSequence)return;
   state.context=context;clearForecast();renderHeader(context);renderReview();await drawResearch();
@@ -152,7 +155,7 @@ async function renderBacktest(result,id){
 }
 function renderRuns(){
   $('run-count').textContent=state.runs.length;
-  $('run-rows').innerHTML=state.runs.length?state.runs.map(r=>{const s=r.request.settings||{},complete=r.status==='complete',exports=complete&&r.kind!=='scan';return `<tr><td>${esc(prettyDate(r.created))}<small>${esc(new Date(r.created).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}))}</small></td><td>${esc(r.kind==='scan'?'Setup scan':r.kind==='backtest'?'Backtest':'Forecast')}<small>${esc(r.request.symbol||'Cached universe')} · ${s.timeframe==='W'?'Weekly':'Daily'}</small></td><td>${esc(s.model||'—')}</td><td>${s.horizon||'—'} bars / ${s.samples||'—'} paths</td><td><span class="badge ${r.status==='failed'?'negative':complete?'positive':''}">${esc(r.status.toUpperCase())}</span>${r.error?'<small>'+esc(r.error)+'</small>':''}</td><td>${complete?`<button class="text-button" data-open-run="${r.id}">Open</button>`:''}${exports?`<a class="text-button" href="/api/runs/${r.id}?format=csv">CSV ↓</a> <a class="text-button" href="/api/runs/${r.id}?format=json">JSON ↓</a>`:''}</td></tr>`;}).join(''):'<tr><td colspan="6" class="muted">No runs yet. Generate a forecast or run a historical test.</td></tr>';
+  $('run-rows').innerHTML=state.runs.length?state.runs.map(r=>{const s=r.request.settings||{},complete=r.status==='complete',exports=complete&&r.kind!=='scan';return `<tr><td>${esc(prettyDate(r.created))}<small>${esc(new Date(r.created).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}))}</small></td><td>${esc(r.kind==='scan'?'Setup scan':r.kind==='backtest'?'Backtest':'Forecast')}<small>${esc(r.request.symbol||'Cached universe')} · ${s.timeframe==='W'?'Weekly':'Daily'}</small></td><td>${esc(s.model||'—')}</td><td>${s.horizon||'—'} bars / ${s.samples||'—'} paths<small>${esc(r.request.start?prettyDate(r.request.start)+' – '+prettyDate(r.request.end):r.request.asof?'Origin: '+prettyDate(r.request.asof):'Latest cached prices')}</small></td><td><span class="badge ${r.status==='failed'?'negative':complete?'positive':''}">${esc(r.status.toUpperCase())}</span>${r.error?'<small>'+esc(r.error)+'</small>':''}</td><td>${complete?`<button class="text-button" data-open-run="${r.id}">Open</button>`:''}${exports?`<a class="text-button" href="/api/runs/${r.id}?format=csv">CSV ↓</a> <a class="text-button" href="/api/runs/${r.id}?format=json">JSON ↓</a>`:''}</td></tr>`;}).join(''):'<tr><td colspan="6" class="muted">No runs yet. Generate a forecast or run a historical test.</td></tr>';
 }
 async function refreshRuns(){state.runs=await api('/api/runs');renderRuns();}
 async function openRun(id){
@@ -165,7 +168,7 @@ async function openRun(id){
 }
 function setBusy(key){
   state.active=key;document.body.classList.toggle('busy',Boolean(key));$('job').classList.toggle('hidden',!key);
-  for(const id of ['forecast-button','quick-forecast','run-backtest','scan-cache'])$(id).disabled=Boolean(key);
+  for(const id of ['forecast-button','run-backtest','scan-cache'])$(id).disabled=Boolean(key);
 }
 async function pollJob(){
   if(!state.active)return;
@@ -178,7 +181,7 @@ async function pollJob(){
       setBusy(null);await refreshRuns();
       if(run.status==='complete'){
         if(run.kind==='scan'){state.setups=run.result.setups;renderSetups();notice(`${run.result.setups.length} setups found in ${run.result.scanned} cached symbols.`);}
-        else await openRun(run.id);
+        else {await openRun(run.id);notice('Saved to Run history. Every prediction and backtest has its own saved result.');}
       }else {if(state.forecast)$('chart-state').textContent='PREVIOUS RESULT · NEW REVIEW NOT COMPLETED';notice(run.error||run.message,run.status==='failed');}
       return;
     }
@@ -200,7 +203,7 @@ async function startJob(kind){
 document.querySelectorAll('.nav-tab').forEach(button=>button.addEventListener('click',()=>showPage(button.dataset.page)));
 $('notice').querySelector('button').onclick=()=>$('notice').classList.add('hidden');
 $('setup-search').oninput=renderSetups;$('setup-filter').onchange=renderSetups;
-$('setup-list').onclick=guarded(async event=>{const row=event.target.closest('[data-symbol]');if(!row)return;state.scanner=row.dataset.scanner;$('asof').value=row.dataset.date;showPage('research');await loadContext(row.dataset.symbol,row.dataset.date);});
+$('setup-list').onclick=guarded(async event=>{const row=event.target.closest('[data-symbol]');if(!row)return;state.scanner=row.dataset.scanner;$('asof').value='';showPage('research');await loadContext(row.dataset.symbol,'');});
 $('load-symbol').onclick=guarded(async()=>{state.scanner='all';await loadContext($('symbol-input').value);});
 $('symbol-input').addEventListener('keydown',guarded(async event=>{if(event.key==='Enter'){event.preventDefault();state.scanner='all';await loadContext($('symbol-input').value);}}));
 $('asof').onchange=guarded(async()=>{if(state.symbol)await loadContext();});
@@ -208,10 +211,11 @@ $('latest').onclick=guarded(async()=>{$('asof').value='';state.scanner='all';awa
 document.querySelectorAll('[data-tf]').forEach(button=>button.onclick=guarded(async()=>{if(state.tf===button.dataset.tf)return;state.tf=button.dataset.tf;document.querySelectorAll('[data-tf]').forEach(b=>b.classList.toggle('selected',b===button));holdingOptions(state.tf==='W'?6:15);$('settings-form').elements.horizon.value=state.tf==='W'?6:15;state.scanner='all';markEdited();renderSetups();if(state.symbol)await loadContext();}));
 $('settings-form').onsubmit=event=>event.preventDefault();$('settings-form').addEventListener('input',markEdited);
 $('save-settings').onclick=guarded(async()=>{const settings=settingsFromForm();state.settings=await api('/api/settings',settings);$('settings-dirty').classList.add('hidden');notice('Forecast period saved to your one shared setup.');});
-$('edit-period').onclick=()=>$('settings-form').scrollIntoView({behavior:'smooth',block:'center'});
+$('edit-period').onclick=()=>{$('settings-form').scrollIntoView({behavior:'smooth',block:'center'});$('holding-period').focus();};
+$('toggle-setups').onclick=()=>{const hidden=document.body.classList.toggle('focus-setups');$('toggle-setups').textContent=hidden?'Show setups':'Hide setups';$('toggle-setups').setAttribute('aria-expanded',String(!hidden));requestAnimationFrame(()=>KronosCharts.resize());};
 $('test-this-setup').onclick=()=>{showPage('performance');$('test-end').value=state.forecast?.asof||state.context?.asof||$('test-end').value;};
 $('forecast-button').onclick=guarded(()=>startJob('forecast'));
-$('quick-forecast').onclick=guarded(()=>startJob('forecast'));
+
 $('run-backtest').onclick=guarded(()=>startJob('backtest'));
 $('scan-cache').onclick=guarded(()=>startJob('scan'));
 $('cancel-job').onclick=guarded(async()=>{await api('/api/cancel/'+state.active,{});$('cancel-job').disabled=true;$('job-message').textContent='Stopping after the current batch…';});
@@ -241,6 +245,12 @@ async function init(){
   else {notice('No cached market data found. Run your original scanner first.');await drawResearch();}
   if(data.active){setBusy(data.active);await pollJob();}
 }
+const refreshLivePrice=LivePrices.watch(()=>state.symbol?[state.symbol]:[],(quotes,loading)=>{
+  const q=quotes[state.symbol];$('last-price').textContent=loading?'Fetching LTP…':q?money(q.ltp):'LTP unavailable';
+  $('last-change').textContent=loading?'Checking API…':LivePrices.label(q);
+  $('last-change').className='';
+},error=>{$('last-price').textContent='LTP unavailable';$('last-change').textContent=error.message;});
+window.addEventListener('message',event=>{if(event.origin===location.origin&&event.data==='patterns-updated')api('/api/bootstrap').then(data=>{state.setups=data.setups;renderSetups();}).catch(error=>notice(error.message,true));});
 init().catch(error=>notice(error.message,true));
 
 // Daily monitoring is server-side; closing this browser does not stop it.
@@ -266,7 +276,7 @@ $('watch-rows').onclick=guarded(async event=>{
   if(button){await api('/api/watch',{symbol:button.dataset.watchSymbol,enabled:button.dataset.enable==='true'});await refreshWatch();}
 });
 async function watchLoop(){
-  try{await refreshWatch();}catch(error){$('watch-rows').innerHTML='<tr><td colspan="5">Daily watch unavailable. Keep the app running and refresh after a restart.</td></tr>';}
+  try{await refreshWatch();if(state.token)await refreshRuns();}catch(error){$('watch-rows').innerHTML='<tr><td colspan="5">Daily watch unavailable. Keep the app running and refresh after a restart.</td></tr>';}
   setTimeout(watchLoop,15000);
 }
 watchLoop();

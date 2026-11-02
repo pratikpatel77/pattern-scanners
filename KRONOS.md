@@ -112,9 +112,26 @@ Kronos weights stay fixed: adapting inputs is different from model retraining.
 
 ## One application
 
-Pattern Scanner is the home screen at http://127.0.0.1:8765. The launcher can
-refresh prices and scan, or open the saved report immediately. Click AI beside
+Pattern Scanner is the home screen at http://127.0.0.1:8765. The launcher opens the workspace and starts a price/candle refresh automatically. Click AI beside
 a stock to carry its symbol and timeframe into the AI prediction tab. The
 scanner and AI stay inside the same window and share one server and data cache.
-The AI tab includes forecasts, daily watch, backtests and saved runs. Refresh
-report reloads finished scanner output; it does not fetch prices. Use Run Pattern Scanners.bat as the single application launcher.
+The AI tab includes forecasts, daily watch, backtests and saved runs. Refresh prices fetches new API snapshots and updates completed candles and patterns. Use Run Pattern Scanners.bat as the single application launcher.
+
+
+## Price freshness
+
+Opening the workspace checks the API automatically. Visible prices refresh every
+30 seconds and when returning to a tab. FYERS supplies dated snapshots when its
+login is valid; Definedge provides an automatic-login stock-price fallback.
+Definedge REST quotes give a trade time without a date, which is shown explicitly.
+No saved close is substituted for a failed LTP request. Fetch time and quote/trade
+time are separate. This is a periodic API snapshot, not a streaming tick feed.
+
+Completed stock candles refresh through Definedge. Pattern refresh covers the
+existing cached universe, uses the original detectors, and shows progress/errors.
+Workspace history and reports live in `.cache/kronos_research`; original scanner
+reports and cached input files are preserved. Missing stocks are listed in
+`/api/market/status` and the report is marked partial. Historical replays and saved
+forecasts retain their original dates. Fresh LTP does not regenerate saved AI
+forecasts. Option chains, executable bid/ask checks, and paper marks use FYERS;
+renewed login files are picked up without restarting the app.

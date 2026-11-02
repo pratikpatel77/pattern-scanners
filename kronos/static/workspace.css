@@ -1,2 +1,12 @@
 *{box-sizing:border-box}body{margin:0;background:#fafaf9;color:#1c1917;font:14px -apple-system,"Segoe UI",system-ui,Roboto,sans-serif}header{height:76px;padding:12px 28px;display:flex;align-items:center;gap:30px;border-bottom:1px solid #e7e5e4;background:white}.identity{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;font-weight:700;font-size:19px}.identity img{width:44px;height:44px;object-fit:contain;background:#eee8de;border-radius:8px}.identity small{display:block;font-size:10px;font-weight:500;color:#78716c;letter-spacing:1px;margin-top:4px}nav{display:flex;gap:8px}button{font:inherit;border:1px solid #e7e5e4;background:white;color:#1c1917;border-radius:10px;padding:11px 16px;cursor:pointer}button[aria-selected=true]{background:#1c1917;color:white}#refresh-report{margin-left:auto}main{height:calc(100dvh - 76px)}iframe{width:100%;height:100%;border:0}iframe[hidden]{display:none}@media(max-width:650px){header{height:auto;min-height:110px;padding:10px;gap:10px;flex-wrap:wrap}.identity{font-size:16px}button{padding:9px}#refresh-report{font-size:11px}main{height:calc(100dvh - 120px)}}
 iframe{display:block}
+
+#market-status{padding:7px 28px;background:#f5f5f4;color:#57534e;font-size:12px;min-height:30px}#market-status[data-error=true]{background:#fef2f2;color:#991b1b}main{height:calc(100dvh - 106px)}
+/* More working space; header height drives the iframe without clipping. */
+body{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+header{height:62px;min-height:62px;padding:8px 20px;gap:24px;flex-shrink:0}
+.identity{font-size:17px}.identity img{width:36px;height:36px}.identity small{font-size:9px}
+button{padding:8px 13px;border-radius:7px}
+#market-status{padding:5px 20px;min-height:26px;flex-shrink:0;font-size:11px}
+main{height:auto;flex:1;min-height:0}
+@media(max-width:650px){header{height:auto;min-height:100px;padding:8px;gap:8px}.identity{font-size:15px}nav{gap:4px}button{padding:8px;font-size:12px}#market-status{padding:5px 10px}}

@@ -66,6 +66,25 @@ class SettingsTests(unittest.TestCase):
         for values in ({'samples':0},{'lookback':10000},{'samples':4.5},{'model':'unknown'},{'fee_bps':float('nan')},{'risk_pct':50},{'future':'bad'}):
             with self.assertRaises(ValueError):Settings.from_dict(values)
 
+    def test_all_saved_results_survive_restart_and_profile_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'test.db'
+            store=Store(path)
+            expected={}
+            for i in range(105):
+                kind='forecast' if i%2 else 'backtest'
+                key=store.create(kind,{'symbol':'TEST','settings':Settings().to_dict()})
+                result={'number':i,'windows':[{'forecast':[i]}]} if kind=='backtest' else {'forecast':[i]}
+                store.update(key,status='complete',result=result)
+                expected[key]=result
+            store.save_settings(replace(Settings(),horizon=10))
+            reopened=Store(path)
+            reopened.recover()
+            self.assertEqual(len(reopened.list()),105)
+            self.assertEqual(len(reopened.list(limit=5)),5)
+            for key,result in expected.items():
+                self.assertEqual(reopened.get(key)['result'],result)
+
     def test_interrupted_run_recovery(self):
         with tempfile.TemporaryDirectory() as directory:
             store=Store(Path(directory)/'test.db')

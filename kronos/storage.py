@@ -33,6 +33,7 @@ class Store:
     def connect(self):
         db = sqlite3.connect(self.path, timeout=15)
         db.row_factory = sqlite3.Row
+        db.execute('PRAGMA synchronous=FULL')
         try:
             with db:
                 yield db
@@ -73,9 +74,10 @@ class Store:
             result[name] = json.loads(result[name]) if result[name] else None
         return result
 
-    def list(self, limit=100):
+    def list(self, limit=None):
         with self.connect() as db:
-            rows = db.execute('SELECT id,kind,status,created,updated,request,progress,message,error FROM runs ORDER BY created DESC LIMIT ?', (limit,)).fetchall()
+            sql = 'SELECT id,kind,status,created,updated,request,progress,message,error FROM runs ORDER BY created DESC, id DESC'
+            rows = db.execute(sql if limit is None else sql+' LIMIT ?', () if limit is None else (limit,)).fetchall()
         return [{**dict(r), 'request': json.loads(r['request'])} for r in rows]
 
     def recover(self):

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pickle
 import threading
+import time
 import numpy as np
 import pandas as pd
 from datalayer import resample
@@ -34,6 +35,11 @@ class MarketData:
         self._stamp = None
         self._entries = {}
         self._lock = threading.RLock()
+        self.live_path = self.root / '.cache/kronos_research/live_bars.pkl'
+        self._live = {}
+        if self.live_path.exists():
+            with self.live_path.open('rb') as f:
+                self._live = pickle.load(f)
 
     def reload(self):
         with self._lock:
@@ -43,7 +49,42 @@ class MarketData:
                 with self.path.open('rb') as f:
                     entries = pickle.load(f)
                 self._entries, self._stamp = entries, stamp
-            return self._entries
+            entries = dict(self._entries)
+            for symbol, value in self._live.items():
+                original = entries.get(symbol)
+                if original is None or value[0] >= original[0]:
+                    entries[symbol] = value
+            return entries
+
+    def save_live(self):
+        with self._lock:
+            self.live_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.live_path.with_suffix('.tmp')
+            with temp.open('wb') as f:
+                pickle.dump(self._live, f, protocol=pickle.HIGHEST_PROTOCOL)
+            temp.replace(self.live_path)
+
+    def refresh_symbol(self, symbol, provider, end=None, persist=True):
+        current = datetime.now(IST)
+        end = end or (current.date() if current.hour >= 16 else current.date()-timedelta(days=1))
+        old = self.reload().get(symbol, (0, pd.DataFrame()))[1]
+        start = max(end-timedelta(days=1000), old.index[-1].date()-timedelta(days=10)) if len(old) else end-timedelta(days=1000)
+        recent = provider.daily_bars(symbol, start, end)
+        if recent.empty:
+            raise ValueError('FYERS returned no completed daily candles.')
+        recent, _ = _candles(recent)
+        overlap = old.index.intersection(recent.index)
+        if len(overlap) and (recent.loc[overlap,'close']/old.loc[overlap,'close']-1).abs().max() > .015:
+            recent = provider.daily_bars(symbol, end-timedelta(days=1000), end)
+            recent, _ = _candles(recent)
+            old = old.iloc[:0]
+        merged = pd.concat([old.loc[old.index < recent.index[0]] if len(old) else old, recent])
+        merged = merged.loc[merged.index.date >= end-timedelta(days=1000)]
+        with self._lock:
+            self._live[symbol] = (time.time(), merged)
+            if persist:
+                self.save_live()
+        return merged
 
     def symbols(self):
         entries = self.reload()
@@ -92,7 +133,13 @@ class MarketData:
                 found.append(signal)
         return sorted(found, key=lambda s: (-s.score, s.scanner))
 
-    def context(self, symbol, timeframe='D', asof=None):
+    def context(self, symbol, timeframe='D', asof=None, provider=None):
+        error = None
+        if provider is not None and not asof:
+            try:
+                self.refresh_symbol(symbol, provider)
+            except ValueError as exc:
+                error = str(exc)
         bars = self.bars(symbol, timeframe, asof)
         signals = self.detect(symbol, timeframe, asof)
         last = bars.index[-1].date()
@@ -101,7 +148,8 @@ class MarketData:
         return {"symbol": symbol, "timeframe": timeframe, "asof": str(last),
                 "history": candles_json(bars.tail(300)), "available_bars": len(bars),
                 "signals": [signal_dict(s) for s in signals], "stale_days": age,
-                "partial_week": partial, "source": "Scanner cache",
+                "partial_week": partial, "source": f"{provider.name} completed candles" if provider and not error and not asof else "Saved candles",
+                "refresh_error": error,
                 "change_pct": float((bars.close.iloc[-1]/bars.close.iloc[-2]-1)*100) if len(bars)>1 else 0}
 
     def saved_setups(self):

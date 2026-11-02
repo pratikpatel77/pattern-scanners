@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Options Desk</title><link rel="stylesheet" href="/desk.css"><script defer src="/desk.js"></script></head>
+<body>
+<header class="top">
+  <div class="search">
+    <input id="search" autocomplete="off" spellcheck="false" placeholder="Search F&amp;O stock  ( / )" aria-label="Search F&O stock">
+    <ul id="search-list" role="listbox" hidden></ul>
+  </div>
+  <div class="quote">
+    <strong id="sym">—</strong>
+    <span id="spot" class="spot">—</span>
+    <span id="spot-ch" class="ch"></span>
+  </div>
+  <dl class="facts">
+    <div><dt>Fut</dt><dd id="f-fut">—</dd></div>
+    <div><dt>Lot</dt><dd id="f-lot">—</dd></div>
+    <div><dt>ATM IV</dt><dd id="f-iv">—</dd></div>
+    <div><dt>PCR</dt><dd id="f-pcr">—</dd></div>
+    <div><dt>Max pain</dt><dd id="f-pain">—</dd></div>
+    <div><dt>DTE</dt><dd id="f-dte">—</dd></div>
+    <div><dt>VIX</dt><dd id="f-vix">—</dd></div>
+  </dl>
+  <span id="live" class="live" data-state="idle"><i></i><span id="live-text">Connecting…</span></span>
+</header>
+
+<nav id="watch" class="watch" aria-label="Watchlist"></nav>
+
+<div class="bar">
+  <div class="tabs" role="tablist">
+    <button id="tab-chain" role="tab" aria-selected="true">Chain &amp; builder</button>
+    <button id="tab-ai" role="tab" aria-selected="false">AI forecast</button>
+    <button id="tab-pos" role="tab" aria-selected="false">Positions <b id="pos-count"></b></button>
+  </div>
+  <label>Expiry <select id="expiry"></select></label>
+  <label>Strikes <select id="span"><option value="8">±8</option><option value="12" selected>±12</option><option value="20">±20</option><option value="99">All</option></select></label>
+  <button id="ai" class="ai" hidden title="Open the Kronos forecast"></button>
+  <a class="classic" href="/options/classic" target="_top" title="Previous desk with AI analysis and full journal">Classic desk ↗</a>
+</div>
+
+<div id="pos-alert" class="pos-alert" hidden></div>
+
+<main id="view-chain" class="grid">
+  <section class="pane chain-pane">
+    <table class="chain">
+      <thead>
+        <tr class="sides"><th colspan="5" class="c">CALLS</th><th></th><th colspan="5" class="p">PUTS</th></tr>
+        <tr><th class="c">OI</th><th class="c oich">OI chg</th><th class="c">IV</th><th class="c dl">Δ</th><th class="c">LTP</th><th class="k">Strike</th><th class="p">LTP</th><th class="p dl">Δ</th><th class="p">IV</th><th class="p oich">OI chg</th><th class="p">OI</th></tr>
+      </thead>
+      <tbody id="chain"><tr><td colspan="11" class="empty">Pick a stock to load its option chain.</td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="ai-pane" class="pane ai-pane" hidden>
+    <div id="ai-head"></div>
+    <div id="ai-chart" class="ai-chart"></div>
+    <div id="ai-detail"></div>
+  </section>
+
+  <div id="split" class="split" title="Drag to resize · double-click to reset" role="separator" aria-orientation="vertical"></div>
+
+  <aside class="pane builder">
+    <div id="ai-ideas" class="ai-ideas"></div>
+    <div class="presets" id="presets"></div>
+    <div id="ctx" class="ctx"></div>
+    <div id="legs" class="legs"></div>
+    <div id="summary" class="summary"></div>
+    <div class="chart-head"><span>Payoff</span><label class="days">Target <input id="days" type="range" min="0" max="0" value="0"> <b id="days-label">Today</b></label></div>
+    <div id="payoff" class="payoff"></div>
+    <div id="payoff-grip" class="grip" title="Drag to change chart height · double-click to reset" role="separator" aria-orientation="horizontal"></div>
+    <div class="actions">
+      <button id="clear" class="ghost">Clear</button>
+      <button id="trade" class="primary">Paper trade</button>
+    </div>
+    <p id="trade-note" class="note">Market-order fill: buy at ask, sell at bid (deeper levels if needed), plus brokerage and charges. No broker order is placed.</p>
+  </aside>
+</main>
+
+<main id="view-pos" class="positions" hidden>
+  <div class="pos-head"><h2>Open positions</h2><span id="pos-total" class="total"></span><a class="classic" href="/options/classic" target="_top">Full journal &amp; analytics ↗</a></div>
+  <div id="open-pos"></div>
+  <h2>Closed</h2>
+  <div id="closed-pos"></div>
+</main>
+
+<div id="toast" role="status" hidden></div>
+</body></html>

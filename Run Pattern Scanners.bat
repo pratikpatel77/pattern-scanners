@@ -11,11 +11,8 @@ if errorlevel 1 (
     call setup.bat
 )
 
-if exist results.html (
-    set "REFRESH="
-    set /p REFRESH="  Fetch fresh prices and rescan? [y/N]: "
-)
-if exist results.html if /I not "%REFRESH%"=="y" goto workspace
+rem The workspace fetches prices and refreshes candles automatically.
+if exist results.html goto workspace
 
 echo ==================================================
 echo   PRE-BREAKOUT PATTERN SCANNERS

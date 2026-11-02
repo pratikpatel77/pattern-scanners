@@ -1,0 +1,340 @@
+"""Fast options desk: one live option-chain call per refresh, custom strategy legs and
+one-click paper trades. Read-only market data; no broker orders."""
+from datetime import datetime, timedelta
+import math
+import threading
+import time
+import uuid
+
+from .options_market import IST, clock, market_open, number
+from .options_math import bs, book_fill, charges, intrinsic
+
+CHAIN_URL = 'https://api-t1.fyers.in/data/options-chain-v3'
+QUOTES_URL = 'https://api-t1.fyers.in/data/quotes'
+STRIKES = 25          # strikes each side of ATM in one chain call
+CHAIN_TTL = 1.0       # seconds; concurrent browser polls share one FYERS call
+SYMBOL_OK = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&-_')
+
+
+def clean_symbol(value):
+    symbol = str(value or '').strip().upper()
+    if not 1 <= len(symbol) <= 40 or set(symbol) - SYMBOL_OK:
+        raise ValueError('Choose a valid F&O stock.')
+    return symbol
+
+
+def years_left(expiry_ts, now=None):
+    """Calendar days to the 15:30 IST expiry, never below ~1 hour so greeks stay finite."""
+    now = now or clock().timestamp()
+    return max((expiry_ts - now) / 86400, 1 / 24)
+
+
+def implied_vol(price, spot, strike, days, kind):
+    """Black-Scholes IV in %, by bisection. None when the price carries no time value."""
+    if price <= 0 or spot <= 0 or strike <= 0 or days <= 0:
+        return None
+    if price <= intrinsic(kind, strike, spot) + .01:
+        return None
+    lo, hi = .5, 400.
+    if bs(spot, strike, days, hi, kind) < price:
+        return None
+    for _ in range(45):
+        mid = (lo + hi) / 2
+        if bs(spot, strike, days, mid, kind) > price:
+            hi = mid
+        else:
+            lo = mid
+    return round((lo + hi) / 2, 2)
+
+
+def delta(spot, strike, days, iv, kind):
+    if not iv or days <= 0 or spot <= 0:
+        return None
+    t, sigma = days / 365., iv / 100
+    d1 = (math.log(spot / strike) + (.06 + sigma * sigma / 2) * t) / (sigma * math.sqrt(t))
+    n = (1 + math.erf(d1 / math.sqrt(2))) / 2
+    return round(n if kind == 'CE' else n - 1, 3)
+
+
+def max_pain(rows):
+    strikes = [r['strike'] for r in rows]
+    if not strikes:
+        return None
+    def pain(k):
+        total = 0.
+        for r in rows:
+            total += (r['CE'] or {}).get('oi', 0) * max(0., k - r['strike'])
+            total += (r['PE'] or {}).get('oi', 0) * max(0., r['strike'] - k)
+        return total
+    return min(strikes, key=pain)
+
+
+def payoff_summary(legs, spot, entry_credit, costs):
+    """Expiry P&L over a wide grid: max profit/loss, breakevens and whether either side is open-ended."""
+    strikes = sorted({l['strike'] for l in legs})
+    lo, hi = min(strikes + [spot]) * .5, max(strikes + [spot]) * 1.5
+    grid = sorted({round(lo + (hi - lo) * i / 400, 2) for i in range(401)} | set(strikes))
+    lot = legs[0]['lot']
+    net = [entry_credit - costs + sum(l['qty'] * intrinsic(l['type'], l['strike'], s) * lot for l in legs) for s in grid]
+    calls = sum(l['qty'] for l in legs if l['type'] == 'CE')
+    breakevens = []
+    for i in range(1, len(grid)):
+        a, b = net[i - 1], net[i]
+        if (a < 0 <= b) or (a >= 0 > b):
+            breakevens.append(round(grid[i - 1] + (grid[i] - grid[i - 1]) * (-a) / (b - a), 2) if b != a else grid[i])
+    return dict(max_profit=None if calls > 0 else round(max(net), 2),
+                max_loss=round(max(1., -min(net)), 2),
+                unlimited_loss=calls < 0, breakevens=breakevens)
+
+
+class FastDesk:
+    def __init__(self, service):
+        self.service = service
+        self.cache = {}
+        self.last_good = {}
+        self.locks = {}
+        self.guard = threading.Lock()
+
+    @property
+    def market(self):
+        return self.service.options.market
+
+    def warm(self):
+        """Load the instrument master once in the background so the first chain is instant."""
+        def run():
+            try:
+                self.market.universe()
+            except Exception:
+                pass
+        threading.Thread(target=run, name='desk-warmup', daemon=True).start()
+
+    # ---------- reads ----------
+    def bootstrap(self):
+        options = self.service.options
+        try:
+            universe = options.market.universe()
+        except ValueError:
+            universe = []
+        fno = set(universe)
+        ideas = [dict(symbol=r['symbol'], patterns=r['patterns'][:3]) for r in options.stock_ideas()
+                 if not fno or r['symbol'] in fno]
+        ai = {}
+        for a in options.journal.analyses():
+            f = a.get('forecast_summary')
+            if a['symbol'] in ai or not f or not f.get('bias'):
+                continue
+            ai[a['symbol']] = dict(bias=f['bias'], lower=a.get('lower'), upper=a.get('upper'),
+                                   median_end=f.get('median_end'), last_close=f.get('last_close'),
+                                   created=a.get('created'), asof=f.get('asof'))
+        return dict(universe=universe, ideas=ideas, ai=ai, paper=options.journal.paper(),
+                    market_open=market_open(), time=clock().isoformat())
+
+    def chain(self, symbol, expiry=None):
+        symbol = clean_symbol(symbol)
+        expiry = str(expiry or '')
+        if expiry and not expiry.isdigit():
+            raise ValueError('Unknown expiry.')
+        key = (symbol, expiry)
+        with self.guard:
+            lock = self.locks.setdefault(key, threading.Lock())
+        with lock:
+            hit = self.cache.get(key)
+            if hit and time.monotonic() - hit[0] < CHAIN_TTL:
+                return hit[1]
+            try:
+                data = self.market._get(CHAIN_URL, dict(symbol=f'NSE:{symbol}-EQ', strikecount=STRIKES,
+                                                        timestamp=expiry), True)
+                value = self._shape(symbol, data)
+            except ValueError as exc:
+                old = self.last_good.get(key)
+                if not old:
+                    raise
+                value = {**old, 'stale': True, 'error': str(exc)}
+                try:   # keep the stock price moving through the Definedge fallback
+                    q = self.service.prices.cash_quote(symbol)
+                    if q:
+                        value['spot'] = {**old['spot'], 'ltp': q['ltp'], 'source': 'Definedge'}
+                except ValueError:
+                    pass
+                self.cache[key] = (time.monotonic(), value)
+                return value
+            self.cache[key] = (time.monotonic(), value)
+            self.last_good[key] = value
+            return value
+
+    def _shape(self, symbol, data):
+        rows = data.get('optionsChain') or []
+        under = next((r for r in rows if r.get('option_type') == ''), None)
+        if not under or number(under.get('ltp')) <= 0:
+            raise ValueError('FYERS returned no stock price for this chain.')
+        spot = number(under['ltp'])
+        expiries = [dict(ts=str(e.get('expiry')), date=str(e.get('date'))) for e in data.get('expiryData') or []]
+        options = [r for r in rows if r.get('option_type') in ('CE', 'PE')]
+        if not options:
+            raise ValueError('No option quotes for this stock.')
+        # The chain's own contracts tell us the expiry; the master gives lot and tick.
+        master = getattr(self.market, 'by_symbol', {}) or {}
+        if not master:
+            try:
+                self.market.universe(); master = self.market.by_symbol
+            except ValueError:
+                master = {}
+        first = master.get(options[0].get('symbol'), {})
+        expiry_date = first.get('expiry')
+        selected = next((e for e in expiries if expiry_date and
+                         datetime.strptime(e['date'], '%d-%m-%Y').date().isoformat() == expiry_date), None)
+        if selected is None and expiries:
+            selected = expiries[0]
+        expiry_ts = int(selected['ts']) if selected else int((clock() + timedelta(days=7)).timestamp())
+        days = years_left(expiry_ts)
+        by_strike = {}
+        for r in options:
+            strike = number(r.get('strike_price'))
+            kind = r['option_type']
+            ltp, bid, ask = number(r.get('ltp')), number(r.get('bid')), number(r.get('ask'))
+            mid = (bid + ask) / 2 if 0 < bid <= ask else ltp
+            iv = implied_vol(mid, spot, strike, days, kind)
+            info = master.get(r.get('symbol'), {})
+            by_strike.setdefault(strike, dict(strike=strike, CE=None, PE=None))[kind] = dict(
+                symbol=r.get('symbol'), ltp=ltp, ch=number(r.get('ltpch')), chp=number(r.get('ltpchp')),
+                bid=bid, ask=ask, oi=number(r.get('oi')), oich=number(r.get('oich')), vol=number(r.get('volume')),
+                iv=iv, delta=delta(spot, strike, days, iv, kind), lot=info.get('lot'), tick=info.get('tick', .05))
+        table = [by_strike[k] for k in sorted(by_strike)]
+        atm = min(table, key=lambda r: abs(r['strike'] - spot))
+        atm_ivs = [x['iv'] for x in (atm['CE'], atm['PE']) if x and x.get('iv')]
+        lot = next((x['lot'] for r in table for x in (r['CE'], r['PE']) if x and x.get('lot')), None)
+        call_oi, put_oi = number(data.get('callOi')), number(data.get('putOi'))
+        vix = data.get('indiavixData') or {}
+        return dict(symbol=symbol, time=clock().isoformat(), market_open=market_open(), stale=False, source='FYERS',
+                    spot=dict(ltp=spot, ch=number(under.get('ltpch')), chp=number(under.get('ltpchp')),
+                              bid=number(under.get('bid')), ask=number(under.get('ask')),
+                              fut=number(under.get('fp')) or None, source='FYERS'),
+                    expiries=expiries, expiry=selected, expiry_date=expiry_date, days=round(days, 3),
+                    lot=lot, atm=atm['strike'], atm_iv=round(sum(atm_ivs) / len(atm_ivs), 2) if atm_ivs else None,
+                    pcr=round(put_oi / call_oi, 2) if call_oi else None, max_pain=max_pain(table),
+                    vix=number(vix.get('ltp')) or None, rows=table)
+
+    def ai(self, symbol):
+        """Latest saved Kronos forecast and its two best strategies. Instant: never runs the model."""
+        symbol = clean_symbol(symbol)
+        options = self.service.options
+        job = None
+        if self.service.active:
+            try:
+                run = self.service.store.get(self.service.active)
+                job = {k: run.get(k) for k in ('id', 'kind', 'status', 'progress', 'message', 'created')}
+                job['symbol'] = (run.get('request') or {}).get('symbol')
+            except Exception:
+                job = None
+        key = options.journal.latest_forecast_id(symbol)
+        if not key:
+            return dict(symbol=symbol, analysis=None, job=job)
+        a = options.journal.analysis(key)
+        f = a.get('forecast') or {}
+        from .options_math import underlying_stop
+        ideas = []
+        for c in options.top_ideas(a.get('candidates', [])):
+            try:
+                stop = c.get('underlying_stop') or underlying_stop(c['bias'], c['legs'], f)
+            except (KeyError, TypeError, ValueError):
+                stop = None
+            ideas.append(dict(id=c.get('id'), name=c['name'], bias=c.get('bias'), status=c.get('status'),
+                              expiry=c.get('expiry'), entry_credit=c.get('entry_credit'), max_loss=c.get('max_loss'),
+                              max_profit=c.get('max_profit'), breakevens=c.get('breakevens', []),
+                              scenario_profit_pct=c.get('scenario_profit_pct'), stressed_mean_net=c.get('stressed_mean_net'),
+                              short_touch_pct=c.get('short_touch_pct'), underlying_stop=stop, exit_by=c.get('exit_by'),
+                              reasons=[r for r in c.get('reasons', []) if not r.startswith('Chain preview')],
+                              legs=[dict(strike=l['strike'], type=l['type'], qty=l['qty'], ltp=l.get('ltp')) for l in c['legs']]))
+        return dict(symbol=symbol, job=job, analysis=dict(
+            id=a['id'], created=a.get('created'), forecast_created=a.get('forecast_created'), data_mode=a.get('data_mode'),
+            data_asof=a.get('data_asof'), spot=a.get('spot'), lower=a.get('lower'), upper=a.get('upper'),
+            forecast_end=a.get('forecast_end'), expiry=a.get('expiry'), status=a.get('status'), reason=a.get('reason'),
+            patterns=a.get('patterns', []), ideas=ideas,
+            forecast=dict(asof=f.get('asof'), last_close=f.get('last_close'), summary=f.get('summary'),
+                          history=[dict(date=r['date'], close=r['close']) for r in (f.get('history') or [])[-60:]],
+                          rows=[dict(date=r['date'], median=r['median'], q10=r['q10'], q90=r['q90']) for r in f.get('forecast', [])])))
+
+    def context(self, symbol):
+        """Next scheduled event and the Kronos stop levels for one stock (both sides; the page picks by strategy)."""
+        symbol = clean_symbol(symbol)
+        options = self.service.options
+        from .position_watch import next_event, kronos_stop
+        end = str((clock() + timedelta(days=60)).date())
+        try:
+            events = options.events(symbol, end)
+        except Exception:
+            events = None
+        key = options.journal.latest_forecast_id(symbol)
+        stop = None
+        if key:
+            f = options.journal.analysis(key).get('forecast') or {}
+            stop = kronos_stop(f, [], 'range') if f.get('history') else None
+        return dict(symbol=symbol, event=next_event(events), events_checked=bool(events and events.get('checked')),
+                    stop=stop, upcoming=(events or {}).get('upcoming', [])[:5])
+
+    def ltp(self, symbols):
+        """Last prices for option and stock contracts (open-position MTM). Up to 50 per call."""
+        symbols = list(dict.fromkeys(s for s in symbols if s))
+        if not 1 <= len(symbols) <= 50 or any(not s.startswith('NSE:') or len(s) > 60 for s in symbols):
+            raise ValueError('Request 1 to 50 NSE contracts.')
+        rows = self.market._get(QUOTES_URL, {'symbols': ','.join(symbols)}, True)
+        out = {}
+        for row in rows if isinstance(rows, list) else []:
+            v = row.get('v') or {}
+            if row.get('s') == 'ok' and number(v.get('lp')) > 0:
+                out[row.get('n')] = dict(ltp=number(v['lp']), bid=number(v.get('bid')), ask=number(v.get('ask')),
+                                         chp=number(v.get('chp')))
+        return dict(quotes=out, time=clock().isoformat(), market_open=market_open())
+
+    # ---------- paper trade from custom legs ----------
+    def open_paper(self, request):
+        options = self.service.options
+        symbol = clean_symbol(request.get('symbol'))
+        raw = request.get('legs')
+        if not isinstance(raw, list) or not 1 <= len(raw) <= 6:
+            raise ValueError('Add 1 to 6 legs.')
+        self.market.universe()
+        legs = []
+        for item in raw:
+            contract = self.market.by_symbol.get(str((item or {}).get('symbol', '')))
+            lots = (item or {}).get('lots')
+            if not contract or contract['underlying'] != symbol:
+                raise ValueError('A leg does not belong to this stock. Reload the chain.')
+            if type(lots) is not int or lots == 0 or abs(lots) > 50:
+                raise ValueError('Lots must be a whole number from 1 to 50, buy or sell.')
+            legs.append({**contract, 'qty': lots})
+        if len({l['expiry'] for l in legs}) > 1:
+            raise ValueError('All legs must share one expiry.')
+        from .options import preferences
+        prefs = preferences(options.journal.settings())
+        with options.action_lock:
+            quotes = options._depths([l['symbol'] for l in legs])  # fresh two-sided books, market hours only
+            spot = options.market.depth(f'NSE:{symbol}-EQ', require_fresh=False)
+            buy = sell = 0.
+            for leg, q in zip(legs, quotes):
+                leg.update({k: q[k] for k in ('bid', 'ask_price', 'bid_qty', 'ask_qty', 'quote_time', 'source') if k in q},
+                           ltp=number(q.get('ltp')))
+                units = abs(leg['qty']) * leg['lot']
+                try:   # market order: buys lift the asks, sells hit the bids, deeper levels if needed
+                    leg['entry_fill'], leg['entry_levels'] = book_fill(q, leg['qty'], units)
+                except ValueError as exc:
+                    raise ValueError(f"{leg['symbol']}: {exc}") from None
+                if leg['qty'] > 0:
+                    buy += leg['entry_fill'] * units
+                else:
+                    sell += leg['entry_fill'] * units
+            # One executed order per leg, as the broker would bill it.
+            entry_charges = charges(buy, sell, len(legs), prefs['brokerage'])
+            credit = round(sell - buy, 2)
+            summary = payoff_summary(legs, number(spot.get('ltp')), credit, sum(entry_charges.values()))
+            expiry = legs[0]['expiry']
+            name = str(request.get('name') or 'Custom strategy')[:60]
+            exit_by = str(datetime.fromisoformat(expiry).date() - timedelta(days=1))
+            plan = dict(name=name, expiry=expiry, lot=legs[0]['lot'], legs=legs, entry_credit=credit,
+                        exit_by=exit_by, underlying_stop=None, **summary)
+            payload = dict(symbol=symbol, plan=plan, legs=legs, prefs=prefs, entry_spot=number(spot.get('ltp')),
+                           entry_time=clock().isoformat(), exit_by=exit_by, entry_credit=credit,
+                           entry_charges=entry_charges, research=False, accepted_warnings=[], source='desk', fill_model='market',
+                           note='Market-order paper fill: buys lift the live asks, sells hit the live bids, walking deeper levels if needed. '
+                                'Brokerage per executed order plus exchange, STT, SEBI, GST and stamp charges.')
+            return options.journal.open('desk:' + uuid.uuid4().hex, 'custom', payload)

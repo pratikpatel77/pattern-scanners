@@ -15,30 +15,48 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
+import threading
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
 _LEGACY = [
-    PROJECT_ROOT.parent / "definedge-api" / ".env",
-    PROJECT_ROOT.parent / "kotak-neo-api" / ".env",
-    PROJECT_ROOT.parent / "fyers- api- non-trading" / ".env",
+    PROJECT_ROOT.parent.parent / "Logins" / "definedge-api" / ".env",
+    PROJECT_ROOT.parent.parent / "Logins" / "kotak-neo-api" / ".env",
+    PROJECT_ROOT.parent.parent / "Logins" / "fyers- api- non-trading" / ".env",
 ]
 
 _loaded = False
+_stamps = None
+_managed = {}
+_lock = threading.RLock()
 
 
 def load() -> None:
-    """Load .env (once). Values already in the real environment always win."""
-    global _loaded
-    if _loaded:
-        return
-    load_dotenv(ENV_FILE, override=False)
-    for legacy in _LEGACY:
-        if legacy.exists():
-            load_dotenv(legacy, override=False)
-    _loaded = True
+    """Reload changed login files. Values from the real environment always win."""
+    global _loaded, _stamps, _managed
+    with _lock:
+        paths = [ENV_FILE, *_LEGACY]
+        stamps = tuple(p.stat().st_mtime_ns if p.exists() else None for p in paths)
+        if _loaded and stamps == _stamps:
+            return
+        values = {}
+        for path in paths:
+            if path.exists():
+                for key, value in dotenv_values(path).items():
+                    if value is not None:
+                        values.setdefault(key, value)
+        # Only replace values that we loaded ourselves. Real environment wins.
+        managed = {}
+        for key, value in values.items():
+            if key not in os.environ or (key in _managed and os.environ[key] == _managed[key]):
+                os.environ[key] = value
+                managed[key] = value
+        for key, value in _managed.items():
+            if key not in values and os.environ.get(key) == value:
+                os.environ.pop(key, None)
+        _managed, _stamps, _loaded = managed, stamps, True
 
 
 def get(name: str, default: str = "") -> str:

@@ -41,6 +41,30 @@ class ResearchService:
         self.events = {}
         from .monitor import DailyMonitor
         self.monitor = DailyMonitor(self)
+        from .options import OptionsDesk
+        self.options = OptionsDesk(self)
+        from .definedge_market import DefinedgeMarket
+        self.prices = DefinedgeMarket()
+        # Permanent rule: the options desk reads prices from Definedge whenever FYERS cannot supply them.
+        if hasattr(self.options.market, 'fallback'):
+            self.options.market.fallback = self.prices
+        from .freshness import MarketRefresh
+        self.refresh = MarketRefresh(self)
+        from .desk import FastDesk
+        self.desk = FastDesk(self)
+        from .position_watch import PositionWatch
+        self.watch = PositionWatch(self)
+
+    def warm_fallback(self):
+        """Log in to Definedge and load its option master in the background, so a FYERS failure fails over instantly."""
+        def warm():
+            try:
+                self.prices.ready()
+                self.prices.option_tokens()
+            except Exception:
+                pass  # retried on first use; never blocks the app
+        threading.Thread(target=warm,name='definedge-warmup',daemon=True).start()
+        self.desk.warm()
 
     def setups(self):
         path = self.directory/'setups.json'
@@ -151,6 +175,8 @@ class ResearchService:
 
     def _forecast(self,request,settings,progress,cancel):
         symbol,asof=request['symbol'],request.get('asof')
+        if not asof:
+            self.market.refresh_symbol(symbol, self.prices)
         bars=self.market.bars(symbol,settings.timeframe,asof)
         candidates=self.market.detect(symbol,settings.timeframe,asof,request['scanner'])
         signal=candidates[0] if candidates else None
@@ -228,6 +254,8 @@ class ResearchService:
         return run
 
     def close(self):
+        self.watch.close()
+        self.refresh.close()
         self.monitor.close()
         with self.lock:
             for event in self.events.values():
