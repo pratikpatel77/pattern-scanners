@@ -1,6 +1,9 @@
 """
-Pattern scanners -- Stage 1->2, Darvas Box, Cup & Handle -- on Daily and Weekly
-timeframes, over any broker/data source in the common data layer.
+Pattern scanners on Daily and Weekly timeframes, over any broker/data source in
+the common data layer.
+
+  bullish (pre-breakout):  Stage 1->2, Darvas Box, Cup & Handle
+  bearish (pre-breakdown): Stage 3->4, Darvas Breakdown Box, Inverted Cup & Handle
 
 Bars are downloaded once per symbol (daily), cached on disk, and reused for
 both timeframes and all three scanners.
@@ -9,6 +12,7 @@ Examples:
     python scan.py                                   # all scanners, D+W, Definedge, top 1200 by market cap
     python scan.py --source kotak --open
     python scan.py --scanners cup --tf weekly
+    python scan.py --scanners bearish                # only the three bearish scanners
     python scan.py --symbols DIVISLAB,RELIANCE --asof 2026-07-08
     python scan.py --offline                         # re-scan cached bars, no API calls
     python scan.py --source local --data-dir ../../Strategies/rs-strategy-backtest/.cache/definedge_ohlcv
@@ -31,7 +35,7 @@ from datalayer import BENCHMARK, SOURCES, AuthError, BarStore, get_source, resam
 from datalayer.delivery import DeliveryStore
 from datalayer.timeframe import TIMEFRAMES
 from datalayer.universe import resolve
-from scanners import REGISTRY
+from scanners import ALL_SCANNERS, BEAR_REGISTRY, REGISTRY
 from scanners.common import liquid_enough
 
 BENCH_KEY = f"__{BENCHMARK}__"
@@ -43,6 +47,8 @@ def log(msg=""):
 
 def parse_list(value: str, allowed: dict, what: str) -> list[str]:
     items = [x.strip().lower() for x in value.split(",") if x.strip()]
+    if what == "scanner" and items in (["bullish"], ["bearish"]):
+        return list(REGISTRY if items == ["bullish"] else BEAR_REGISTRY)
     if items == ["all"]:
         return list(dict.fromkeys(allowed.values())) if what == "timeframe" else list(allowed)
     bad = [x for x in items if x not in allowed]
@@ -112,7 +118,7 @@ def run_scanners(bars, bench, scanner_names, tfs, args, delivery=None):
             tf_bars = resample(daily, tf)
             for name in scanner_names:
                 try:
-                    sig = REGISTRY[name].scan(symbol, tf_bars, tf, bench_tf[tf])
+                    sig = ALL_SCANNERS[name].scan(symbol, tf_bars, tf, bench_tf[tf])
                 except Exception as e:
                     errors += 1
                     if errors <= 5:
@@ -136,7 +142,7 @@ def print_summary(signals, scanner_names, tfs, limit=15):
         for tf in tfs:
             rows = [s for s in signals if s.scanner == name and s.tf == tf]
             tf_label = "Daily" if tf == "D" else "Weekly"
-            print(f"\n=== {REGISTRY[name].TITLE} -- {tf_label}: {len(rows)} setups ===")
+            print(f"\n=== {ALL_SCANNERS[name].TITLE} -- {tf_label}: {len(rows)} setups ===")
             if not rows:
                 continue
             if has_kronos:
@@ -160,7 +166,7 @@ def print_summary(signals, scanner_names, tfs, limit=15):
 def write_csv(path, signals):
     has_kronos = any(bool(getattr(s, "kronos", None)) for s in signals)
     metric_keys = list(dict.fromkeys(k for s in signals for k in s.metrics))
-    header = ["scanner", "timeframe", "symbol", "date", "score", "close", "pivot", "distance_pct", "support", "risk_pct",
+    header = ["scanner", "direction", "timeframe", "symbol", "date", "score", "close", "pivot", "distance_pct", "support", "risk_pct",
               "label", "verdict", "pressure"]
     if has_kronos:
         header.extend(["kronos_verdict", "kronos_score", "kronos_prob", "kronos_target", "kronos_gain_pct", "kronos_rr", "kronos_bars"])
@@ -172,7 +178,7 @@ def write_csv(path, signals):
         for s in signals:
             a = s.analysis or {}
             k = getattr(s, "kronos", None) or {}
-            row = [s.scanner, s.tf, s.symbol, s.date, s.score, round(s.close, 2), round(s.pivot, 2), round(s.distance_pct, 2),
+            row = [s.scanner, s.direction, s.tf, s.symbol, s.date, s.score, round(s.close, 2), round(s.pivot, 2), round(s.distance_pct, 2),
                    round(s.support, 2), round(s.risk_pct, 2), s.label, a.get("verdict", ""), a.get("pressure", "")]
             if has_kronos:
                 row.extend([
@@ -186,9 +192,10 @@ def write_csv(path, signals):
 def main():
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(errors="replace")
-    ap = argparse.ArgumentParser(description="Stage 1->2, Darvas Box and Cup & Handle pre-breakout scanners")
+    ap = argparse.ArgumentParser(description="Bullish pre-breakout and bearish pre-breakdown pattern scanners")
     ap.add_argument("--source", "--broker", dest="source", choices=list(SOURCES), default="definedge")
-    ap.add_argument("--scanners", default="all", help=f"comma list of {', '.join(REGISTRY)} (default all)")
+    ap.add_argument("--scanners", default="all",
+                    help=f"comma list of {', '.join(ALL_SCANNERS)}, or bullish / bearish (default all)")
     ap.add_argument("--tf", default="daily,weekly", help="daily, weekly or daily,weekly (default both)")
     ap.add_argument("--top", type=int, default=1200, help="top-N by market cap (default 1200)")
     ap.add_argument("--universe", choices=["marketcap", "all"], default="marketcap")
@@ -217,7 +224,7 @@ def main():
 
     if args.source == "local" and not args.data_dir:
         sys.exit("--source local needs --data-dir")
-    scanner_names = parse_list(args.scanners, {k: k for k in REGISTRY}, "scanner")
+    scanner_names = parse_list(args.scanners, {k: k for k in ALL_SCANNERS}, "scanner")
     tfs = parse_list(args.tf, TIMEFRAMES, "timeframe")
 
     t0 = time.time()
@@ -243,10 +250,12 @@ def main():
             log("\nERROR: Kronos dependencies not found. Please install with:")
             log("  pip install torch einops huggingface_hub safetensors")
             sys.exit(1)
-        log(f"\nRunning Kronos ({args.kronos_model}) breakout predictions for {len(signals)} setups...")
+        # Kronos breakout checks assume an upward breakout; bearish setups are skipped.
+        long_signals = [s for s in signals if not s.bearish]
+        log(f"\nRunning Kronos ({args.kronos_model}) breakout predictions for {len(long_signals)} bullish setups...")
         t_kronos = time.time()
         predict_signals(
-            signals,
+            long_signals,
             bars,
             model=args.kronos_model,
             device=args.kronos_device,

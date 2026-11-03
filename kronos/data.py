@@ -8,7 +8,7 @@ import time
 import numpy as np
 import pandas as pd
 from datalayer import resample
-from scanners import REGISTRY
+from scanners import ALL_SCANNERS, BEAR_REGISTRY, REGISTRY
 from .core import _candles
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,7 +20,8 @@ def signal_dict(signal):
         return None
     return {"scanner": signal.scanner, "symbol": signal.symbol, "timeframe": signal.tf,
             "date": str(signal.date), "close": signal.close, "pivot": signal.pivot,
-            "support": signal.support, "score": signal.score, "label": signal.label}
+            "support": signal.support, "score": signal.score, "label": signal.label,
+            "direction": getattr(signal, "direction", "long")}
 
 
 def candles_json(frame):
@@ -119,13 +120,16 @@ class MarketData:
             raise ValueError('Unsupported timeframe')
         return resample(self.daily(symbol, asof), timeframe)
 
-    def detect(self, symbol, timeframe='D', asof=None, scanner=None):
+    def detect(self, symbol, timeframe='D', asof=None, scanner=None, direction='long'):
+        """Pattern setups for one symbol. direction: 'long' (default; the Kronos AI tools
+        assume an upward breakout), 'short' or 'all'."""
+        registry = {'long': REGISTRY, 'short': BEAR_REGISTRY}.get(direction, ALL_SCANNERS)
         bars = self.bars(symbol, timeframe, asof)
         bench = None
         if '__NIFTY50__' in self.reload():
             bench = self.bars('__NIFTY50__', timeframe, bars.index[-1])
         found = []
-        for name, module in REGISTRY.items():
+        for name, module in registry.items():
             if scanner and scanner != 'all' and name != scanner:
                 continue
             signal = module.scan(symbol, bars, timeframe, bench)
@@ -163,7 +167,8 @@ class MarketData:
                 rows.append({"symbol": str(r.symbol), "scanner": str(r.scanner),
                     "timeframe": str(r.timeframe), "date": str(pd.Timestamp(r.date).date()),
                     "close": float(r.close), "pivot": float(r.pivot), "support": float(r.support),
-                    "score": float(r.score), "label": str(r.get('label',''))})
+                    "score": float(r.score), "label": str(r.get('label','')),
+                    "direction": str(r.get('direction','long')) if str(r.get('direction','long')) in ('long','short') else 'long'})
             except (ValueError, KeyError, AttributeError):
                 continue
         return rows

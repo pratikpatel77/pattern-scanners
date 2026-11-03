@@ -1,20 +1,21 @@
-"""Self-contained HTML report for the pattern scanners: one tab per scanner,
-Daily/Weekly filter, min-score filter, sortable columns, a sparkline of the
-pattern with pivot/stop lines, and a TradingView watchlist copy box."""
+"""Self-contained HTML report for the pattern scanners: a Bullish / Bearish
+switch, one tab per scanner, Daily/Weekly filter, min-score filter, sortable
+columns, a sparkline of the pattern with pivot/stop lines, and a TradingView
+watchlist copy box."""
 from __future__ import annotations
 
 import html
 import json
 
-from scanners import REGISTRY
+from scanners import ALL_SCANNERS, direction_of
 
 STYLE = """
 :root{--bg:#fafaf9;--card:#fff;--fg:#1c1917;--muted:#78716c;--border:#e7e5e4;--hover:#f5f5f4;
 --accent:#1c1917;--accent-fg:#fafaf9;--green:#15803d;--green-bg:#dcfce7;--red:#b91c1c;--amber:#b45309;--amber-bg:#fef3c7;
---line:#57534e;--zone:rgba(21,128,61,.07)}
+--line:#57534e;--zone:rgba(21,128,61,.07);--zone-bear:rgba(185,28,28,.07);--red-bg:#fee2e2}
 @media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--card:#1c1917;--fg:#f5f5f4;--muted:#a8a29e;--border:#292524;--hover:#262220;
 --accent:#f5f5f4;--accent-fg:#1c1917;--green:#4ade80;--green-bg:#14532d;--red:#f87171;--amber:#fbbf24;--amber-bg:#422006;
---line:#d6d3d1;--zone:rgba(74,222,128,.08)}}
+--line:#d6d3d1;--zone:rgba(74,222,128,.08);--zone-bear:rgba(248,113,113,.09);--red-bg:#450a0a}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,"Segoe UI",system-ui,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
 .wrap{max-width:1400px;margin:0 auto;padding:2rem 1rem 4rem}
@@ -24,6 +25,14 @@ h1{font-size:1.6rem;margin:0 0 .25rem;letter-spacing:-.02em}
 .tab{border:1px solid var(--border);background:var(--card);color:var(--fg);border-radius:.6rem;padding:.6rem .9rem;cursor:pointer;text-align:left;font:inherit}
 .tab .t{font-weight:650}.tab .c{color:var(--muted);font-size:.78rem}
 .tab.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}.tab.on .c{color:inherit;opacity:.75}
+.dir{display:inline-flex;border:1px solid var(--border);border-radius:.6rem;overflow:hidden;margin:0 0 .6rem}
+.dir button{border:0;background:var(--card);color:var(--fg);padding:.45rem .95rem;font:inherit;font-size:.85rem;font-weight:600;cursor:pointer;display:flex;gap:.45rem;align-items:center}
+.dir button+button{border-left:1px solid var(--border)}
+.dir button small{color:var(--muted);font-weight:500;font-size:.75rem}
+.dir button.on.long{background:var(--green-bg);color:var(--green)}.dir button.on.short{background:var(--red-bg);color:var(--red)}
+.dir button.on small{color:inherit;opacity:.8}
+.pill.opp{background:var(--red-bg);color:var(--red)}.pill.opp.long{background:var(--green-bg);color:var(--green)}
+.dist.bear{color:var(--red)}
 .desc{color:var(--muted);font-size:.85rem;margin:0 0 .8rem}
 .bar{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-bottom:none;border-radius:.75rem .75rem 0 0;padding:.7rem .9rem}
 .seg{display:inline-flex;border:1px solid var(--border);border-radius:.5rem;overflow:hidden}
@@ -85,18 +94,22 @@ svg.spark{display:block}
 SCRIPT = r"""
 const DATA = __DATA__;
 const META = __META__;
-let active = DATA.scanners[0].name, tf = 'all', sortKey = 'score', sortDir = -1;
+const remember = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch (e) { return null; } };
+const dirOf = name => (DATA.scanners.find(s=>s.name===name)||{}).direction || 'long';
+let active = DATA.scanners.some(s=>s.name===remember('scan-tab')) ? remember('scan-tab') : DATA.scanners[0].name;
+let tf = 'all', sortKey = 'score', sortDir = -1;
 
 function fmt(v, d=2){ return v==null ? '' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}); }
-function spark(ch){
+function spark(ch, bear){
   const w=150,h=40,p=3, xs=ch.closes; if(!xs||xs.length<2) return '';
   const preds=ch.pred_closes||[];
   const totalPoints = xs.length + preds.length;
   const vals=xs.concat(preds, Object.values(ch.lines)); const lo=Math.min(...vals), hi=Math.max(...vals), span=(hi-lo)||1;
   const X=i=>p+i*(w-2*p)/(Math.max(1, totalPoints-1)), Y=v=>h-p-(v-lo)*(h-2*p)/span;
   let s=`<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`;
-  if(ch.zone_start!=null) s+=`<rect x="${X(ch.zone_start)}" y="0" width="${X(xs.length-1)-X(ch.zone_start)}" height="${h}" fill="var(--zone)"/>`;
-  const col={pivot:'var(--green)',support:'var(--red)',ma:'var(--amber)',bottom:'var(--muted)'};
+  if(ch.zone_start!=null) s+=`<rect x="${X(ch.zone_start)}" y="0" width="${X(xs.length-1)-X(ch.zone_start)}" height="${h}" fill="var(${bear?'--zone-bear':'--zone'})"/>`;
+  const col=bear ? {pivot:'var(--red)',support:'var(--amber)',ma:'var(--muted)',top:'var(--muted)'}
+                 : {pivot:'var(--green)',support:'var(--red)',ma:'var(--amber)',bottom:'var(--muted)'};
   for(const [k,v] of Object.entries(ch.lines)) s+=`<line x1="${p}" x2="${w-p}" y1="${Y(v)}" y2="${Y(v)}" stroke="${col[k]||'var(--muted)'}" stroke-width="1" stroke-dasharray="3 2"><title>${k} ${v}</title></line>`;
   if(ch.pred_target) s+=`<line x1="${X(xs.length-1)}" x2="${w-p}" y1="${Y(ch.pred_target)}" y2="${Y(ch.pred_target)}" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="2 2"><title>target ${ch.pred_target}</title></line>`;
   s+=`<polyline fill="none" stroke="var(--line)" stroke-width="1.3" points="${xs.map((v,i)=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' ')}"/>`;
@@ -108,7 +121,7 @@ function spark(ch){
   return s;
 }
 function tvLink(sym){ return 'https://www.tradingview.com/chart/?symbol=NSE:'+encodeURIComponent(sym.replace(/-/g,'_')); }
-function vTone(v){ return (v==='Strong accumulation'||v==='Accumulation') ? 'good' : (v==='Mixed' ? 'flat' : 'bad'); }
+function vTone(a){ if(a.tone) return a.tone; const v=a.verdict; return (v==='Strong accumulation'||v==='Accumulation') ? 'good' : (v==='Mixed' ? 'flat' : 'bad'); }
 function esc(t){ const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
 
 function openAnalysis(i){
@@ -119,7 +132,7 @@ function openAnalysis(i){
   const p = a.pressure, w = Math.min(50, Math.abs(p)/2);
   m.querySelector('h2').textContent = r.symbol + '  \u00b7  ' + a.verdict;
   m.querySelector('.sub2').textContent = DATA.scanners.find(s=>s.name===r.scanner).title + ' \u00b7 ' + tfName
-      + ' \u00b7 close ' + fmt(r.close) + ' \u00b7 pivot ' + fmt(r.pivot) + ' (' + fmt(r.distance) + '% away)';
+      + ' \u00b7 close ' + fmt(r.close) + (r.direction==='short' ? ' \u00b7 breakdown ' : ' \u00b7 pivot ') + fmt(r.pivot) + ' (' + fmt(r.distance) + '% away)';
   let h = '<p class="lead">' + esc(a.headline) + '</p>'
     + '<div class="meter"><b class="' + (p>=0?'pos':'neg') + '" style="left:' + (p>=0?50:50-w) + '%;width:' + w + '%"></b></div>'
     + '<div class="meter-note"><span>selling pressure</span><span>buying pressure ' + (p>=0?'+':'') + p + '</span></div>';
@@ -155,8 +168,12 @@ function openKronos(i){
 function closeAnalysis(){ document.getElementById('modal').classList.remove('on'); }
 
 function render(){
-  const sc = DATA.scanners.find(s=>s.name===active);
-  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.name===active));
+  const sc = DATA.scanners.find(s=>s.name===active), dir = sc.direction, bear = dir==='short';
+  remember('scan-tab', active);
+  document.querySelectorAll('.dir button').forEach(b=>b.classList.toggle('on', b.dataset.dir===dir));
+  document.querySelectorAll('.tab').forEach(b=>{ b.classList.toggle('on', b.dataset.name===active); b.hidden = b.dataset.dir!==dir; });
+  document.getElementById('title').textContent = bear ? 'Pre-breakdown pattern scan' : 'Pre-breakout pattern scan';
+  document.getElementById('maxdist-label').textContent = bear ? 'Max to breakdown %' : 'Max to pivot %';
   document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on', b.dataset.tf===tf));
   document.getElementById('desc').textContent = sc.description;
   const q = document.getElementById('q').value.trim().toUpperCase();
@@ -174,8 +191,8 @@ function render(){
 
   const hasKronos = DATA.signals.some(s=>s.kronos!=null);
   const mkeys = sc.metric_keys;
-  const baseCols = [['symbol','Symbol','l'],['score','Score',''],['chart','Pattern','l'],['close','Close',''],['pivot','Pivot',''],
-    ['distance','To pivot %',''],['support','Stop',''],['risk','Risk %',''],['label','Phase','l']];
+  const baseCols = [['symbol','Symbol','l'],['score','Score',''],['chart','Pattern','l'],['close','Close',''],['pivot',bear?'Breakdown':'Pivot',''],
+    ['distance',bear?'To breakdown %':'To pivot %',''],['support',bear?'Stop (above)':'Stop',''],['risk','Risk %',''],['label','Phase','l']];
   if(hasKronos){
     baseCols.push(['kronos','Kronos Breakout','l']);
   }
@@ -184,17 +201,19 @@ function render(){
   const head = cols.map(([k,l,c])=>`<th class="${c}" data-k="${k}">${l}${sortKey===k?(sortDir>0?' ▲':' ▼'):''}</th>`).join('');
   const body = rows.map(r=>{
     const both = DATA.signals.some(o=>o.scanner===r.scanner && o.symbol===r.symbol && o.tf!==r.tf);
-    const others = DATA.signals.filter(o=>o.scanner!==r.scanner && o.symbol===r.symbol).map(o=>o.scanner);
+    const others = DATA.signals.filter(o=>o.scanner!==r.scanner && o.symbol===r.symbol && o.direction===r.direction).map(o=>o.scanner);
     const multi = [...new Set(others)].length;
+    const opp = [...new Set(DATA.signals.filter(o=>o.symbol===r.symbol && o.direction!==r.direction).map(o=>DATA.scanners.find(x=>x.name===o.scanner).title))];
     return `<tr><td class="l sym"><a href="${tvLink(r.symbol)}" target="_blank" rel="noopener">${r.symbol}</a><span class="pill tf">${r.tf}</span>`
       + (both?'<span class="pill both" title="Same setup on Daily and Weekly">D+W</span>':'')
       + (multi?`<span class="pill multi" title="Also in: ${[...new Set(others)].join(', ')}">+${multi}</span>`:'')
+      + (opp.length?`<span class="pill opp ${bear?'long':''}" title="Also a ${bear?'bullish':'bearish'} setup: ${opp.join(', ')} (likely on the other timeframe)">${bear?'also bull':'also bear'}</span>`:'')
       + `</td><td><span class="score"><i><b style="width:${r.score}%"></b></i>${Math.round(r.score)}</span></td>`
-      + `<td class="l">${spark(r.chart)}</td><td>${fmt(r.close)}</td><td>${fmt(r.pivot)}</td>`
-      + `<td class="dist">${fmt(r.distance)}</td><td>${fmt(r.support)}</td><td class="risk">${fmt(r.risk,1)}</td><td class="l">${r.label}</td>`
+      + `<td class="l">${spark(r.chart, bear)}</td><td>${fmt(r.close)}</td><td>${fmt(r.pivot)}</td>`
+      + `<td class="dist ${bear?'bear':''}">${fmt(r.distance)}</td><td>${fmt(r.support)}</td><td class="risk">${fmt(r.risk,1)}</td><td class="l">${r.label}</td>`
       + (hasKronos ? (r.kronos ? `<td class="l kronos-cell" data-i="${r.i}" title="Click for the full Kronos AI forecast"><span class="v ${r.kronos.tone || 'good'}">${r.kronos.verdict || ''}</span><span class="chips">${(r.kronos.chips||[]).join(' \u00b7 ')}</span></td>` : '<td class="l"></td>') : '')
       + (r.analysis
-          ? `<td class="l ana" data-i="${r.i}" title="Click for the full volume + delivery read"><span class="v ${vTone(r.analysis.verdict)}">${r.analysis.verdict || ''}</span><span class="chips">${(r.analysis.chips||[]).join(' \u00b7 ')}</span></td>`
+          ? `<td class="l ana" data-i="${r.i}" title="Click for the full volume + delivery read"><span class="v ${vTone(r.analysis)}">${r.analysis.verdict || ''}</span><span class="chips">${(r.analysis.chips||[]).join(' \u00b7 ')}</span></td>`
           : '<td class="l"></td>')
       + `<td class="l notes">${(r.notes||[]).join(' · ')}</td>`
       + mkeys.map(k=>`<td>${(r.metrics && r.metrics[k]!=null) ? r.metrics[k] : ''}</td>`).join('')
@@ -215,7 +234,14 @@ function render(){
     const n = DATA.signals.filter(x=>x.scanner===s.name && (tf==='all'||x.tf===tf)).length;
     document.querySelector(`.tab[data-name="${s.name}"] .c`).textContent = n + ' setups';
   });
+  document.querySelectorAll('.dir button').forEach(b=>{
+    const n = DATA.signals.filter(x=>x.direction===b.dataset.dir && (tf==='all'||x.tf===tf)).length;
+    b.querySelector('small').textContent = n + ' setups';
+  });
 }
+document.querySelectorAll('.dir button').forEach(b=>b.onclick=()=>{
+  if(dirOf(active)===b.dataset.dir) return;
+  active = DATA.scanners.find(s=>s.direction===b.dataset.dir).name; sortKey='score'; sortDir=-1; render(); });
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ active=b.dataset.name; sortKey='score'; sortDir=-1; render(); });
 document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{ tf=b.dataset.tf; render(); });
 ['q','minscore','maxdist'].forEach(id=>document.getElementById(id).oninput=render);
@@ -237,8 +263,9 @@ def write_html(path, signals, scanner_names, tfs, meta):
         "scanners": [
             {
                 "name": n,
-                "title": REGISTRY[n].TITLE,
-                "description": REGISTRY[n].DESCRIPTION,
+                "title": ALL_SCANNERS[n].TITLE,
+                "description": ALL_SCANNERS[n].DESCRIPTION,
+                "direction": direction_of(n),
                 "metric_keys": list(dict.fromkeys(k for s in signals if s.scanner == n for k in s.metrics)),
             }
             for n in scanner_names
@@ -248,7 +275,7 @@ def write_html(path, signals, scanner_names, tfs, meta):
                 "i": i,
                 "analysis": s.analysis or None,
                 "kronos": getattr(s, "kronos", None) or None,
-                "scanner": s.scanner, "symbol": s.symbol, "tf": s.tf, "date": str(s.date),
+                "scanner": s.scanner, "direction": getattr(s, "direction", "long"), "symbol": s.symbol, "tf": s.tf, "date": str(s.date),
                 "score": s.score, "close": round(s.close, 2), "pivot": round(s.pivot, 2),
                 "distance": round(s.distance_pct, 2), "support": round(s.support, 2), "risk": round(s.risk_pct, 2),
                 "label": html.escape(s.label), "metrics": s.metrics, "notes": [html.escape(x) for x in s.notes], "chart": s.chart,
@@ -257,9 +284,14 @@ def write_html(path, signals, scanner_names, tfs, meta):
         ],
     }
     tabs = "".join(
-        f'<button class="tab" data-name="{n}"><div class="t">{html.escape(REGISTRY[n].TITLE)}</div><div class="c"></div></button>'
+        f'<button class="tab" data-name="{n}" data-dir="{direction_of(n)}"><div class="t">{html.escape(ALL_SCANNERS[n].TITLE)}</div><div class="c"></div></button>'
         for n in scanner_names
     )
+    dirs = list(dict.fromkeys(direction_of(n) for n in scanner_names))
+    dir_switch = "" if len(dirs) < 2 else (
+        '<div class="dir" role="group" aria-label="Pattern direction">'
+        '<button class="long" data-dir="long">Bullish <small></small></button>'
+        '<button class="short" data-dir="short">Bearish <small></small></button></div>')
     tf_buttons = '<button data-tf="all">Both</button>' if len(tfs) > 1 else ""
     tf_buttons += "".join(f'<button data-tf="{t}">{"Daily" if t == "D" else "Weekly"}</button>' for t in tfs)
     last_bar = max((s.date for s in signals), default=None)
@@ -270,14 +302,15 @@ def write_html(path, signals, scanner_names, tfs, meta):
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pattern Scanners</title><style>{STYLE}</style></head>
 <body><div class="wrap">
-<h1>Pre-breakout pattern scan</h1>
+<h1 id="title">Pre-breakout pattern scan</h1>
 <p class="sub">{html.escape(meta['source'])} &middot; {meta['scanned']:,} symbols &middot; {html.escape(meta['universe'])} &middot; last bar {last_bar or '-'}{asof} &middot; generated {html.escape(meta['generated'])}</p>
+{dir_switch}
 <div class="tabs">{tabs}</div>
 <p class="desc" id="desc"></p>
 <div class="bar">
   <div class="seg">{tf_buttons}</div>
   <label>Min score <input type="number" id="minscore" value="0" min="0" max="100" step="5"></label>
-  <label>Max to pivot % <input type="number" id="maxdist" step="0.5" placeholder="any"></label>
+  <label><span id="maxdist-label">Max to pivot %</span> <input type="number" id="maxdist" step="0.5" placeholder="any"></label>
   <input class="q" id="q" placeholder="Filter symbol">
   <div class="tv"><label>TradingView</label><input id="tvlist" readonly><button id="copy" type="button">Copy</button></div>
 </div>
@@ -287,7 +320,10 @@ def write_html(path, signals, scanner_names, tfs, meta):
 <b>Pivot</b> = breakout level (base high / box top / handle high). <b>To pivot %</b> = how far price must rise to trigger. <b>Stop</b> = pattern invalidation
 (recent swing low / box bottom / handle low); <b>Risk %</b> = distance from close to stop. <b>D+W</b> = same setup on both timeframes;
 <b>+N</b> = also flagged by N other scanners. Sparkline: shaded part is the pattern, green dashed = pivot, red dashed = stop.
-<b>Analysis</b> reads volume + NSE delivery + price across the whole pattern &mdash; click any cell for the full breakdown. Delivery data: {html.escape(str(meta.get('delivery', 'off')))}.<br>Stocks below Rs {meta['min_turnover']:g} Cr average daily turnover are excluded. Not investment advice &mdash; confirm on the chart.
+<b>Bearish tabs</b> mirror the bullish ones: <b>Breakdown</b> = the level price must close below (top-range low / box bottom / handle low),
+<b>To breakdown %</b> = how far price must fall, <b>Stop (above)</b> = the level that invalidates the short (swing high / box top / handle high);
+sparkline red dashed = breakdown, amber dashed = stop. <b>also bear / also bull</b> = the stock also shows a setup in the other direction.<br>
+<b>Analysis</b> reads volume + NSE delivery + price across the whole pattern &mdash; bullish tabs look for accumulation, bearish tabs for distribution; green = supports the setup. Click any cell for the full breakdown. Delivery data: {html.escape(str(meta.get('delivery', 'off')))}.<br>Stocks below Rs {meta['min_turnover']:g} Cr average daily turnover are excluded. Not investment advice &mdash; confirm on the chart.
 </footer>
 </div><script>{script}</script></body></html>"""
     with open(path, "w", encoding="utf-8") as f:

@@ -75,8 +75,12 @@ class ResearchService:
                 pass
         return self.market.saved_setups()
 
+    def long_setups(self):
+        """The AI prediction page tests upward breakouts only, so it gets the bullish setups."""
+        return [s for s in self.setups() if s.get('direction','long')=='long']
+
     def bootstrap(self):
-        return {'settings':self.store.settings().to_dict(),'setups':self.setups(),
+        return {'settings':self.store.settings().to_dict(),'setups':self.long_setups(),
                 'symbols':self.market.symbols(),'runs':self.store.list(),
                 'active':self.active,'models':['small','mini','base'],
                 'runtime_ready':all(importlib.util.find_spec(x) is not None for x in ('torch','einops','huggingface_hub')),
@@ -165,12 +169,14 @@ class ResearchService:
                 errors.append({'symbol':symbol,'error':str(exc)})
             if i%25==0 or i+1==len(symbols):
                 progress((i+1)/max(1,len(symbols)),f'Scanned {i+1}/{len(symbols)} symbols')
-        setups.extend(s for s in self.setups() if s['timeframe']!=settings.timeframe)
+        # This scan refreshes bullish setups for one timeframe; keep everything else (bearish setups too).
+        setups.extend(s for s in self.setups() if s['timeframe']!=settings.timeframe or s.get('direction','long')!='long')
         setups.sort(key=lambda s:-s['score'])
         path=self.directory/'setups.json'
         temp=path.with_suffix('.tmp')
         temp.write_text(json.dumps(setups,allow_nan=False),encoding='utf-8')
         temp.replace(path)
+        setups=[s for s in setups if s.get('direction','long')=='long']
         return {'setups':setups,'scanned':len(symbols),'errors':errors,'timeframe':settings.timeframe}
 
     def _forecast(self,request,settings,progress,cancel):

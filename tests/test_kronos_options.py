@@ -372,6 +372,16 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(rows[0]['patterns'],['Darvas · D','Stage · D'])
         self.assertEqual(len(self.j.analyses()),0)
 
+    def test_bearish_patterns_are_named_and_marked(self):
+        service=SimpleNamespace(store=self.store,setups=lambda:[
+            dict(symbol='AAA',scanner='cup_bear',label='Handle forming',timeframe='W',direction='short'),
+            dict(symbol='BBB',scanner='cup',label='Handle forming',timeframe='W'),
+            dict(symbol='BBB',scanner='darvas_bear',label='Inside box',timeframe='D',direction='short')])
+        rows={r['symbol']:r for r in OptionsDesk(service,Mock()).stock_ideas()}
+        self.assertEqual(rows['AAA']['patterns'],['Bearish Inverted Cup & Handle · W'])
+        self.assertEqual(rows['AAA']['bias'],'bearish')
+        self.assertEqual(rows['BBB']['bias'],'mixed')
+
     def test_fresh_pattern_report_does_not_reintroduce_old_csv_patterns(self):
         with tempfile.TemporaryDirectory() as folder:
             directory=Path(folder);(directory/'scanner.html').write_text('updated')

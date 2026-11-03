@@ -103,14 +103,25 @@ class OptionsDesk:
         directory=getattr(self.service,'directory',None)
         if market is not None and not (directory and (directory/'scanner.html').exists()):
             setups.extend(market.saved_setups())
+        from scanners import ALL_SCANNERS
         for s in setups:
             symbol=str(s.get('symbol','')).strip().upper()
             if not symbol: continue
-            row=rows.setdefault(symbol,dict(symbol=symbol,patterns=[],setups=[]))
-            label=str(s.get('label') or s.get('scanner') or 'Pattern')
+            row=rows.setdefault(symbol,dict(symbol=symbol,patterns=[],setups=[],directions=[]))
+            direction='short' if s.get('direction')=='short' else 'long'
+            if direction=='short':
+                # Bearish phases reuse words like "Handle forming"; name the pattern so it is unambiguous.
+                module=ALL_SCANNERS.get(s.get('scanner'))
+                label='Bearish '+(module.TITLE if module else str(s.get('label') or 'pattern'))
+            else:
+                label=str(s.get('label') or s.get('scanner') or 'Pattern')
             label+=' · '+str(s.get('timeframe','D'))
             if label not in row['patterns']: row['patterns'].append(label)
+            if direction not in row['directions']: row['directions'].append(direction)
             row['setups'].append(s)
+        for row in rows.values():
+            d=row['directions']
+            row['bias']='mixed' if len(d)>1 else ('bearish' if d==['short'] else 'bullish')
         return sorted(rows.values(),key=lambda r:r['symbol'])
 
     @staticmethod

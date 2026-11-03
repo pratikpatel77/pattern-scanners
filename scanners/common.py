@@ -28,7 +28,7 @@ class Signal:
     date: date                   # last bar
     close: float
     pivot: float                 # breakout level
-    support: float               # invalidation level (base/box/handle low)
+    support: float               # invalidation level (base/box/handle low; the high for bearish setups)
     score: float                 # 0-100, higher = better-formed and closer to trigger
     label: str                   # short phase description
     metrics: dict = field(default_factory=dict)   # scanner-specific columns (ordered)
@@ -37,13 +37,24 @@ class Signal:
     zones: dict = field(default_factory=dict)     # bar indices of the pattern, for volume/delivery analysis
     analysis: dict = field(default_factory=dict)  # filled in by analysis.py after the scan
     kronos: dict = field(default_factory=dict)    # filled in by kronos_breakout.py if --kronos is used
+    direction: str = "long"      # "long": pivot above, stop below. "short": breakdown level below, stop above
+
+    @property
+    def bearish(self) -> bool:
+        return self.direction == "short"
 
     @property
     def distance_pct(self) -> float:
+        """How far price must move to trigger: up to the pivot (long) or down to the breakdown level (short)."""
+        if self.bearish:
+            return (1 - self.pivot / self.close) * 100
         return (self.pivot / self.close - 1) * 100
 
     @property
     def risk_pct(self) -> float:
+        """Close to stop, as a positive percentage either way."""
+        if self.bearish:
+            return (self.support / self.close - 1) * 100
         return (1 - self.support / self.close) * 100
 
 

@@ -57,7 +57,7 @@ async function refresh(){
   if(state.active&&!active){active=state.active;busy(true);poll();}
 }
 
-function patternName(s){return ({cup:'Cup & handle',darvas:'Darvas box',stage:'Stage analysis'})[s.scanner]||s.scanner||s.label||'Pattern';}
+function patternName(s){return ({cup:'Cup & handle',darvas:'Darvas box',stage:'Stage analysis',cup_bear:'Inverted cup & handle (bearish)',darvas_bear:'Darvas breakdown box (bearish)',stage_bear:'Stage 3 → 4 (bearish)'})[s.scanner]||s.scanner||s.label||'Pattern';}
 function updateFilters(){
   const names=[...new Set((state.stock_ideas||[]).flatMap(r=>(r.setups||[]).map(patternName)))].sort();
   const current=$('pattern-filter').value;
@@ -103,7 +103,7 @@ function detailView(name){
 function patternPanel(symbol){
   const rows=(state.stock_ideas||[]).find(r=>r.symbol===symbol)?.setups||[];
   const unique=[...new Map(rows.map(s=>[[s.scanner,s.timeframe,s.date].join('|'),s])).values()];
-  return `<details class="patterns-panel" open><summary>Detected patterns · ${unique.length}</summary>${unique.length?`<div class="table-wrap"><table><thead><tr><th>Pattern</th><th>Timeframe</th><th>Detected</th><th>Breakout level</th><th>Support</th><th>Score</th></tr></thead><tbody>${unique.map(s=>`<tr><td>${esc(patternName(s))}<br><small>${esc(s.label||'')}</small></td><td>${s.timeframe==='W'?'Weekly':'Daily'}</td><td>${esc(s.date||'—')}</td><td>${fmt(s.pivot)}</td><td>${fmt(s.support)}</td><td>${fmt(s.score)}</td></tr>`).join('')}</tbody></table></div><p class="hint">Saved scanner detections, with their original dates. Levels are not live quotes.</p>`:'<p>No saved pattern. Kronos can still analyse this stock.</p>'}</details>`;
+  return `<details class="patterns-panel" open><summary>Detected patterns · ${unique.length}</summary>${unique.length?`<div class="table-wrap"><table><thead><tr><th>Pattern</th><th>Timeframe</th><th>Detected</th><th>Breakout / breakdown level</th><th>Stop</th><th>Score</th></tr></thead><tbody>${unique.map(s=>`<tr><td>${esc(patternName(s))}<br><small>${esc(s.label||'')}</small></td><td>${s.timeframe==='W'?'Weekly':'Daily'}</td><td>${esc(s.date||'—')}</td><td>${fmt(s.pivot)}</td><td>${fmt(s.support)}</td><td>${fmt(s.score)}</td></tr>`).join('')}</tbody></table></div><p class="hint">Saved scanner detections, with their original dates. Levels are not live quotes.</p>`:'<p>No saved pattern. Kronos can still analyse this stock.</p>'}</details>`;
 }
 function syncSymbol(symbol){
   const select=$('symbol');

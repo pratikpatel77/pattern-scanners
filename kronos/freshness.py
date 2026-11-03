@@ -57,7 +57,7 @@ class MarketRefresh:
                         raise ValueError('Latest session candle is missing.')
                     if liquid_enough(daily, 2.):
                         for tf in ('D', 'W'):
-                            for signal in market.detect(symbol, tf):
+                            for signal in market.detect(symbol, tf, direction='all'):
                                 signal.analysis = analyse(signal, market.bars(symbol, tf))
                                 signals.append(signal)
                 except ValueError as exc:
@@ -72,7 +72,8 @@ class MarketRefresh:
             from report import write_html
             path = service.directory/'scanner.html'
             temp = path.with_suffix('.tmp')
-            write_html(temp, signals, ['stage','darvas','cup'], ['D','W'],
+            from scanners import ALL_SCANNERS
+            write_html(temp, signals, list(ALL_SCANNERS), ['D','W'],
                        dict(source='API completed candles', scanned=len(symbols)-len(errors), universe='Existing scanner universe',
                             generated=current.strftime('%d %b %Y, %H:%M IST'), asof=str(session),
                             min_turnover=2., delivery='not refreshed'))

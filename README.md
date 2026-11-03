@@ -14,6 +14,28 @@ NSE delivery quantity and price action across the whole pattern.
 | **Darvas Box** | Confirmed Darvas boxes (top and bottom each held for 3 bars) whose top is at or near the 52-week high, with price coiling under the top | box top | box bottom |
 | **Cup & Handle** | O'Neil cups (prior advance of 20% or more, 12-35% deep, U-shaped, rims at matching heights) with a shallow handle forming in the upper half | handle high / right rim | handle low |
 
+### Bearish (pre-breakdown) scanners
+
+Each one is the exact upside-down version of a bullish scanner (same rules, run on
+mirrored prices -- see `scanners/bearish.py`), so price is **above** a breakdown
+level with the stop **above** price. Switch with **Bullish / Bearish** at the top of the report.
+
+| Scanner | Finds | Breakdown (trigger) | Stop |
+|---|---|---|---|
+| **Stage 3 -> Stage 4** | Weinstein tops: after an advance, price chops around a flattening 30-week MA, closes below it, near the low of the range | range low | recent swing high |
+| **Darvas Breakdown Box** | Confirmed boxes whose bottom is at or near the 52-week low, price pressing on the bottom | box bottom | box top |
+| **Inverted Cup & Handle** | After a decline of 20%+, a rounded dome with lows at matching levels and a shallow bounce (handle) in the lower half | handle low | handle high |
+
+For bearish setups the **Analysis** column reads distribution instead of accumulation
+(green = selling supports the breakdown). The Kronos AI breakout tools only test
+upward breakouts, so they use the bullish setups only.
+
+On the **Options desk**, watchlist chips show ▲ (bullish setup), ▼ (bearish) or ▲▼ (both).
+The builder shows each saved setup's trigger, stop and measured-move target
+(trigger ± the trigger-to-stop distance, at least 5%), with one-click strategies:
+buy call / bull call spread to target / bull put spread below the stop, or
+buy put / bear put spread to target / bear call spread above the stop.
+
 ## Setup (any computer, one time)
 
 This folder is fully self-contained -- copy or clone it anywhere.
@@ -112,6 +134,7 @@ See [KRONOS.md](KRONOS.md) for usage, limitations and legacy CLI options.
 python scan.py                                    # all scanners, D+W, Definedge, top 1200 by market cap
 python scan.py --source kotak --open              # Kotak Neo, open report when done
 python scan.py --scanners cup,darvas --tf weekly  # choose scanners / timeframe
+python scan.py --scanners bearish                 # only stage_bear, darvas_bear, cup_bear
 python scan.py --symbols DIVISLAB,PVRINOX         # just these symbols
 python scan.py --offline                          # re-scan cached bars, no login, no API calls
 python scan.py --asof 2026-07-10                  # what the scanners would have shown on a past date
@@ -122,7 +145,7 @@ python scan.py --refresh                          # intraday: re-download to inc
 | Option | Default | |
 |---|---|---|
 | `--source` | `definedge` | `definedge`, `kotak`, `fyers`, `local` |
-| `--scanners` | `all` | `stage`, `darvas`, `cup` (comma list) |
+| `--scanners` | `all` | `stage`, `darvas`, `cup`, `stage_bear`, `darvas_bear`, `cup_bear` (comma list), or `bullish` / `bearish` |
 | `--tf` | `daily,weekly` | `daily`, `weekly` |
 | `--top` / `--universe all` | 1200 | top-N by market cap, or every NSE EQ symbol |
 | `--min-turnover` | 2 | minimum 20-day average traded value, Rs crore |
@@ -185,6 +208,7 @@ datalayer/              the common data layer
 scanners/
   common.py             Signal type, indicators, relative strength vs Nifty 50
   stage.py  darvas.py  cup_handle.py
+  bearish.py            the three bearish scanners (mirrors of the bullish ones)
 tests/test_scanners.py  synthetic textbook patterns (python -m unittest discover tests)
 tests/test_analysis.py  synthetic accumulation / distribution reads
 tools/fyers_login.py    daily Fyers token refresh

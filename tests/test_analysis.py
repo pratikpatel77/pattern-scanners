@@ -56,6 +56,39 @@ def make_signal(df, tf="D"):
     )
 
 
+def make_bear_signal(df, tf="D"):
+    """The same base read as a topping area: breakdown at the low, stop at the recent high."""
+    return Signal(
+        scanner="stage_bear", symbol="TEST", tf=tf, date=df.index[-1].date(),
+        close=float(df["close"].iloc[-1]), pivot=float(df["low"].iloc[120:].min()),
+        support=float(df["high"].iloc[-30:].max()), score=70.0, label="test top", direction="short",
+        zones={"start": 120, "lead_start": 0, "recent": 15, "pattern_name": "top"},
+    )
+
+
+class BearishVerdictTest(unittest.TestCase):
+    def test_distribution_supports_a_bearish_setup(self):
+        df = make_bars(accumulation=False)
+        a = analyse(make_bear_signal(df), df)
+        self.assertLess(a["pressure"], -20)              # the meter still shows selling pressure
+        self.assertIn(a["verdict"], ("Distribution", "Strong distribution"))
+        self.assertEqual(a["tone"], "good")
+        text = " ".join(b["text"] for s in a["sections"] for b in s["bullets"])
+        self.assertIn("breakdown below", text)
+        self.assertIn("closes back above", text)
+
+    def test_accumulation_warns_a_bearish_setup(self):
+        df = make_bars(accumulation=True)
+        a = analyse(make_bear_signal(df), df)
+        self.assertGreater(a["pressure"], 20)
+        self.assertIn(a["verdict"], ("Caution", "Accumulation"))
+        self.assertEqual(a["tone"], "bad")
+
+    def test_bullish_tone_unchanged(self):
+        df = make_bars(accumulation=True)
+        self.assertEqual(analyse(make_signal(df), df)["tone"], "good")
+
+
 class VerdictTest(unittest.TestCase):
     def test_accumulation_is_recognised(self):
         df = make_bars(accumulation=True)

@@ -560,7 +560,9 @@ function watchSymbols() {
 }
 function renderWatch() {
   const {recent, ideas} = watchSymbols(), tags = new Map(S.ideas.map(i => [i.symbol, i.patterns.join(', ')]));
-  const chip = s => { const q = S.quotes[s]; return `<button data-w="${esc(s)}" class="${s === S.symbol ? 'on' : ''}" title="${esc(tags.get(s) || 'Recently viewed')}"><b>${esc(s)}</b><span>${q ? num(q.ltp) : ''}</span><span class="${tone(q?.change_pct)}">${q && ok(q.change_pct) ? pct(q.change_pct) : ''}</span></button>`; };
+  const bias = new Map(S.ideas.map(i => [i.symbol, i.bias || 'bullish']));
+  const mark = s => { const b = bias.get(s); return b ? `<i class="dir ${b}">${b === 'bearish' ? '▼' : b === 'mixed' ? '▲▼' : '▲'}</i>` : ''; };
+  const chip = s => { const q = S.quotes[s]; return `<button data-w="${esc(s)}" class="${s === S.symbol ? 'on' : ''}" title="${esc(tags.get(s) || 'Recently viewed')}">${mark(s)}<b>${esc(s)}</b><span>${q ? num(q.ltp) : ''}</span><span class="${tone(q?.change_pct)}">${q && ok(q.change_pct) ? pct(q.change_pct) : ''}</span></button>`; };
   $('watch').innerHTML = recent.map(chip).join('') + (recent.length && ideas.length ? '<span class="sep"></span>' : '') + ideas.slice(0, 50 - recent.length).map(chip).join('');
 }
 $('watch').onclick = e => { const b = e.target.closest('[data-w]'); if (b) loadSymbol(b.dataset.w); };
@@ -607,8 +609,65 @@ function renderContext() {
   if (!c) { el.innerHTML = '<div class="ev none">Checking events…</div>'; return; }
   if (c.error) { el.innerHTML = `<div class="ev none">${esc(c.error)}</div>`; return; }
   const legs = S.legs.length && S.chain ? builderLegs() : null, bias = legs ? stratDirection(legs, S.chain.spot.ltp) : null;
-  el.innerHTML = eventHtml(c.event, c.events_checked, S.chain?.expiry_date) + stopHtml(c.stop, bias, S.symbol);
+  el.innerHTML = patternHtml(c.setups) + eventHtml(c.event, c.events_checked, S.chain?.expiry_date) + stopHtml(c.stop, bias, S.symbol);
 }
+
+// ---------- scanner pattern levels -> ready strategies ----------
+// Bullish: trigger above the pivot, stop below. Bearish: trigger below the breakdown level, stop above.
+const PLAYS = {
+  long: [['Buy call', 'buy'], ['Bull call spread → target', 'debit'], ['Bull put spread below stop', 'credit']],
+  short: [['Buy put', 'buy'], ['Bear put spread → target', 'debit'], ['Bear call spread above stop', 'credit']],
+};
+function patternHtml(list) {
+  if (!list?.length) return '';
+  const spot = S.chain?.symbol === S.symbol ? S.chain.spot.ltp : spotOf(S.symbol);
+  return list.slice(0, 2).map((p, i) => {
+    const bear = p.direction === 'short';
+    let state = '';
+    if (ok(spot)) {
+      if (bear ? spot > p.stop : spot < p.stop) state = '<span class="pat-bad" title="Price is past the stop: the pattern has failed">Invalidated</span>';
+      else if (bear ? spot < p.pivot : spot > p.pivot) state = '<span class="pat-go" title="Price is past the trigger level; confirm on a closing basis">Triggered</span>';
+      else state = `<span class="pat-dist">${num(Math.abs(spot / p.pivot - 1) * 100, 1)}% to trigger</span>`;
+    }
+    return `<div class="pat ${bear ? 'bear' : 'bull'}"><div class="pat-top"><b>${bear ? '▼ Bearish' : '▲ Bullish'} · ${esc(p.title)}</b><small>${({W: 'Weekly', D: 'Daily', 'D+W': 'Daily + Weekly'})[p.timeframe] || esc(p.timeframe)} · score ${Math.round(p.score || 0)} · ${esc(shortDate(p.date))}</small>${state}</div>
+      <div class="pat-lv">${bear ? 'Breaks below' : 'Breaks above'} <b>₹${num(p.pivot)}</b> · stop ${bear ? 'above' : 'below'} <b>₹${num(p.stop)}</b> · target <b>₹${num(p.target)}</b></div>
+      ${S.chain ? `<div class="pat-plays">${PLAYS[p.direction].map(([n, k]) => `<button data-pat="${i}" data-play="${k}">${n}</button>`).join('')}</div>` : ''}</div>`;
+  }).join('');
+}
+function strikeAt(level, mode) {
+  // nearest listed strike to a price level; 'below' / 'above' keep it on that side of the level
+  const rows = S.chain.rows; let best = -1;
+  rows.forEach((r, i) => {
+    if ((mode === 'below' && r.strike > level) || (mode === 'above' && r.strike < level)) return;
+    if (best < 0 || Math.abs(r.strike - level) < Math.abs(rows[best].strike - level)) best = i;
+  });
+  return best < 0 ? (mode === 'below' ? 0 : rows.length - 1) : best;
+}
+function patternLegs(p, kind) {
+  const rows = S.chain.rows, bear = p.direction === 'short', legs = [];
+  const add = (side, type, i) => { const r = rows[i]; if (r?.[type]?.symbol && !legs.some(l => l.strike === r.strike && l.type === type)) legs.push({symbol: r[type].symbol, type, strike: r.strike, side, lots: 1}); };
+  const pivot = strikeAt(p.pivot, 'near'), type = bear ? 'PE' : 'CE';
+  if (kind === 'buy') add(1, type, pivot);
+  if (kind === 'debit') {
+    let t = strikeAt(p.target, 'near');
+    if (bear ? t >= pivot : t <= pivot) t = pivot + (bear ? -1 : 1);
+    add(1, type, pivot); add(-1, type, t);
+  }
+  if (kind === 'credit') {
+    const short = strikeAt(p.stop, bear ? 'above' : 'below'), wing = short + (bear ? 2 : -2);
+    add(-1, bear ? 'CE' : 'PE', short); add(1, bear ? 'CE' : 'PE', wing);
+  }
+  return legs;
+}
+$('ctx').addEventListener('click', e => {
+  const b = e.target.closest('[data-play]'); if (!b || !S.chain) return;
+  const p = S.ctx[S.symbol]?.setups?.[Number(b.dataset.pat)]; if (!p) return;
+  const legs = patternLegs(p, b.dataset.play), need = b.dataset.play === 'buy' ? 1 : 2;
+  if (legs.length < need) return toast('Not enough strikes listed near the pattern levels. Widen Strikes or pick legs by hand.', true);
+  S.legs = legs; strategyName = `${b.textContent.replace(/ (→|below|above).*/, '')} · ${p.title}`;
+  renderLegs(); updateLegPrices(); renderSummary(); updateChain(S.chain, windowRows(S.chain), null);
+  toast(`${b.textContent} loaded at live prices. Check the payoff, then Paper trade.`);
+});
 
 // ---------- active position monitor ----------
 const ACTION = {Hold: 'hold', Watch: 'watch', 'Book profit': 'book', Adjust: 'adjust', Exit: 'exit'};

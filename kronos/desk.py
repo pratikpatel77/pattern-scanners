@@ -116,8 +116,8 @@ class FastDesk:
         except ValueError:
             universe = []
         fno = set(universe)
-        ideas = [dict(symbol=r['symbol'], patterns=r['patterns'][:3]) for r in options.stock_ideas()
-                 if not fno or r['symbol'] in fno]
+        ideas = [dict(symbol=r['symbol'], patterns=r['patterns'][:3], bias=r.get('bias', 'bullish'))
+                 for r in options.stock_ideas() if not fno or r['symbol'] in fno]
         ai = {}
         for a in options.journal.analyses():
             f = a.get('forecast_summary')
@@ -270,7 +270,49 @@ class FastDesk:
             f = options.journal.analysis(key).get('forecast') or {}
             stop = kronos_stop(f, [], 'range') if f.get('history') else None
         return dict(symbol=symbol, event=next_event(events), events_checked=bool(events and events.get('checked')),
-                    stop=stop, upcoming=(events or {}).get('upcoming', [])[:5])
+                    stop=stop, upcoming=(events or {}).get('upcoming', [])[:5], setups=self.pattern_levels(symbol))
+
+    def pattern_levels(self, symbol):
+        """Saved scanner setups for one stock with a measured-move target, best first.
+        Bullish: trigger above the pivot, stop below. Bearish: trigger below the breakdown level, stop above."""
+        from scanners import ALL_SCANNERS
+        try:
+            rules = self.service.store.settings()
+            r, floor = float(rules.target_r), float(rules.min_target_pct)
+        except Exception:
+            r, floor = 1.0, 5.0
+        rows, seen = [], {}
+        for s in self.service.setups():
+            if str(s.get('symbol', '')).upper() != symbol:
+                continue
+            try:
+                pivot, stop, close = float(s['pivot']), float(s['support']), float(s['close'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            short = s.get('direction') == 'short'
+            if short:
+                if not stop > pivot > 0:
+                    continue
+                target = pivot - max((stop - pivot) * r, pivot * floor / 100)
+            else:
+                if not pivot > stop > 0:
+                    continue
+                target = pivot + max((pivot - stop) * r, pivot * floor / 100)
+            key = (s.get('scanner'), round(pivot, 2), round(stop, 2))
+            if key in seen:   # the same pattern on Daily and Weekly: one row
+                row = seen[key]
+                if s.get('timeframe') not in row['timeframe']:
+                    row['timeframe'] = 'D+W'
+                row['score'] = max(row['score'] or 0, s.get('score') or 0)
+                continue
+            module = ALL_SCANNERS.get(s.get('scanner'))
+            rows.append(dict(scanner=s.get('scanner'), title=module.TITLE if module else str(s.get('scanner')),
+                             direction='short' if short else 'long', timeframe=s.get('timeframe', 'D'),
+                             date=s.get('date'), label=s.get('label', ''), score=s.get('score'),
+                             close=close, pivot=round(pivot, 2), stop=round(stop, 2), target=round(max(target, .05), 2)))
+            seen[key] = rows[-1]
+        rows.sort(key=lambda x: -(x['score'] or 0))
+        return rows[:4]
 
     def ltp(self, symbols):
         """Last prices for option and stock contracts (open-position MTM). Up to 50 per call."""

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from datalayer.timeframe import to_weekly  # noqa: E402
 from scanners import cup_handle, darvas, stage  # noqa: E402
+from scanners.bearish import CUP_BEAR, DARVAS_BEAR, STAGE4  # noqa: E402
 
 RNG = np.random.default_rng(7)
 
@@ -117,6 +118,63 @@ class CupHandleTest(unittest.TestCase):
         sig = cup_handle.scan("X", frame(weeks, noise=0.003), "W")
         self.assertIsNotNone(sig)
         self.assertEqual(sig.metrics["Handle bars"], 3)
+
+
+def mirror(closes, k=10000.0):
+    """Upside-down copy of a price path: a rally becomes a decline, a cup becomes a dome."""
+    return list(k / np.asarray(closes, float))
+
+
+class BearishTest(unittest.TestCase):
+    """Each bullish textbook pattern, turned upside down, must be found by its bearish twin."""
+
+    def check(self, sig):
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig.direction, "short")
+        self.assertLess(sig.pivot, sig.close)       # breakdown level below price
+        self.assertGreater(sig.support, sig.close)  # stop above price
+        self.assertGreaterEqual(sig.distance_pct, 0)
+        self.assertGreater(sig.risk_pct, 0)
+
+    def test_stage_top(self):
+        sig = STAGE4.scan("X", frame(mirror(StageTest().series(107))), "D")
+        self.check(sig)
+        self.assertLess(sig.distance_pct, 6)
+        self.assertIn("Stage 3", sig.label)
+
+    def test_stage_breakdown_is_ignored(self):
+        s = mirror(StageTest().series(107) + seg(107, 125, 10))
+        self.assertIsNone(STAGE4.scan("X", frame(s), "D"))
+
+    def test_stage_ignores_uptrend(self):
+        self.assertIsNone(STAGE4.scan("X", frame(seg(100, 300, 500)), "D"))
+
+    def test_darvas_box_at_lows(self):
+        sig = DARVAS_BEAR.scan("X", frame(mirror(DarvasTest().series(148)), noise=0.002), "D")
+        self.check(sig)
+        self.assertAlmostEqual(sig.pivot, 10000 / 150 / 1.002, delta=0.1)
+        self.assertIn("Bottom tests", sig.metrics)
+
+    def test_inverted_cup(self):
+        sig = CUP_BEAR.scan("X", frame(mirror(CupHandleTest().series(97)), noise=0.002), "D")
+        self.check(sig)
+        self.assertAlmostEqual(sig.metrics["Dome height %"], 33, delta=4)   # 25% cup depth = 33% dome rise
+        self.assertIn("top", sig.chart["lines"])
+
+    def test_inverted_cup_breakdown_is_ignored(self):
+        s = mirror(CupHandleTest().series(97) + [99, 102, 104])
+        self.assertIsNone(CUP_BEAR.scan("X", frame(s, noise=0.002), "D"))
+
+    def test_bullish_pattern_is_not_bearish(self):
+        self.assertIsNone(CUP_BEAR.scan("X", frame(CupHandleTest().series(97), noise=0.002), "D"))
+        self.assertIsNone(DARVAS_BEAR.scan("X", frame(DarvasTest().series(148), noise=0.002), "D"))
+
+    def test_volume_and_delivery_untouched(self):
+        bars = frame(mirror(CupHandleTest().series(97)), noise=0.002)
+        bars["volume"] = np.arange(len(bars)) + 1.0
+        sig = CUP_BEAR.scan("X", bars, "D")
+        self.check(sig)
+        self.assertEqual(sig.chart["closes"][-1], round(bars["close"].iloc[-1], 2))
 
 
 class WeeklyResampleTest(unittest.TestCase):

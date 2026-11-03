@@ -172,5 +172,37 @@ class AITests(unittest.TestCase):
             self.assertIsNone(desk.ai('OTHER')['analysis'])
 
 
+
+class PatternLevelTests(unittest.TestCase):
+    def desk(self, setups):
+        store = SimpleNamespace(settings=lambda: SimpleNamespace(target_r=1.0, min_target_pct=5.0))
+        return FastDesk(SimpleNamespace(store=store, setups=lambda: setups))
+
+    def test_targets_follow_the_pattern_direction(self):
+        desk = self.desk([
+            dict(symbol='TEST', scanner='cup_bear', direction='short', timeframe='W', close=100, pivot=95, support=110, score=70),
+            dict(symbol='TEST', scanner='cup', timeframe='D', close=100, pivot=104, support=90, score=80),
+            dict(symbol='OTHER', scanner='cup', timeframe='D', close=10, pivot=11, support=9, score=90)])
+        rows = desk.pattern_levels('TEST')
+        self.assertEqual([r['direction'] for r in rows], ['long', 'short'])   # best score first
+        self.assertEqual(rows[0]['target'], 118.0)       # 104 + (104 - 90)
+        self.assertEqual(rows[1]['target'], 80.0)        # 95 - (110 - 95)
+        self.assertEqual(rows[1]['title'], 'Inverted Cup & Handle')
+
+    def test_same_pattern_on_both_timeframes_is_one_row(self):
+        row = dict(symbol='TEST', scanner='stage_bear', direction='short', close=100, pivot=95, support=110)
+        rows = self.desk([{**row, 'timeframe': 'D', 'score': 60}, {**row, 'timeframe': 'W', 'score': 70}]).pattern_levels('TEST')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]['timeframe'], rows[0]['score']), ('D+W', 70))
+
+    def test_minimum_move_and_bad_levels(self):
+        desk = self.desk([
+            dict(symbol='TEST', scanner='darvas_bear', direction='short', timeframe='D', close=100, pivot=99, support=100.5, score=60),
+            dict(symbol='TEST', scanner='stage_bear', direction='short', timeframe='D', close=100, pivot=101, support=99, score=50)])
+        rows = desk.pattern_levels('TEST')
+        self.assertEqual(len(rows), 1)                   # stop below breakdown is not a bearish setup
+        self.assertEqual(rows[0]['target'], 94.05)       # at least 5% below the breakdown level
+
+
 if __name__ == '__main__':
     unittest.main()

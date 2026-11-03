@@ -34,6 +34,14 @@ VERDICTS = [
     (-45, "Caution"),
     (-101, "Distribution"),
 ]
+# bearish setups: scored on SELLING pressure, so the labels run the other way
+BEAR_VERDICTS = [
+    (45, "Strong distribution"),
+    (20, "Distribution"),
+    (-20, "Mixed"),
+    (-45, "Caution"),
+    (-101, "Accumulation"),
+]
 
 
 # ---------------------------------------------------------------- formatting
@@ -193,9 +201,13 @@ def measure(sig, bars: pd.DataFrame) -> dict:
 
     third = max(1, (n - start) // 3)
     m["higher_lows"] = bool(np.nanmin(lo[n - third:]) > np.nanmin(lo[start:start + third]))
+    m["lower_highs"] = bool(np.nanmax(h[n - third:]) < np.nanmax(h[start:start + third]))
 
-    # tests of the pivot and whether volume grew on them
-    near = np.isfinite(h[pat]) & (h[pat] >= sig.pivot * 0.985)
+    # tests of the pivot (the breakdown level for bearish setups) and whether volume grew on them
+    if getattr(sig, "bearish", False):
+        near = np.isfinite(lo[pat]) & (lo[pat] <= sig.pivot * 1.015)
+    else:
+        near = np.isfinite(h[pat]) & (h[pat] >= sig.pivot * 0.985)
     m["pivot_tests"] = int(near.sum())
     m["vol_on_tests_vs_pattern"] = _ratio(_mean(vp[near]), m["vol_pattern"]) if near.any() else np.nan
 
@@ -461,11 +473,252 @@ def _headline(sig, m: dict, pressure: float, why: list) -> str:
     return f"{lead} - {top}."
 
 
+# ---------------------------------------------------------------- bearish setups
+def score_bear(m: dict) -> tuple[float, list]:
+    """Selling-pressure score for a pre-breakdown pattern (positive = supports the breakdown)."""
+    pts, why = 0.0, []
+
+    def add(p, reason, tone):
+        nonlocal pts
+        if p:
+            pts += p
+            why.append((p, reason, tone))
+
+    ud = m["ud_vol"]
+    sellers = np.isfinite(ud) and ud < 0.8
+    add(-_band(ud, [1.5, 1.2, 0.8, 0.6], [18, 12, 0, -12, -18]),
+        "volume favours sellers" if sellers else "volume favours buyers", GOOD if sellers else BAD)
+
+    if m["has_delivery"]:
+        g = m["deliv_ud_gap"]
+        down_heavy = np.isfinite(g) and g < -3
+        add(-_band(g, [8, 3, -3, -8], [18, 12, 0, -12, -18]),
+            "delivery higher on down days" if down_heavy else "delivery higher on up days", GOOD if down_heavy else BAD)
+        conv = m["conviction_down"] - m["conviction_up"]
+        add(max(-10, min(10, conv * 4)),
+            "big-money days were selling" if conv > 0 else "big-money days were buying", GOOD if conv > 0 else BAD)
+        # rising delivery only helps a breakdown when the selling side is the one delivering
+        rg = m["deliv_recent_gap"]
+        if np.isfinite(rg) and rg > 2 and down_heavy:
+            add(6, "delivery rising lately, led by sellers", GOOD)
+
+    vr = m["vol_recent_vs_pattern"]
+    add(_band(vr, [1.5, 0.9, 0.7, 0], [-6, 0, 5, 10]) if np.isfinite(vr) else 0,
+        "volume drying up above the breakdown level" if (vr or 9) < 0.9 else "volume picking up near the breakdown level",
+        GOOD if (vr or 9) < 0.9 else FLAT)
+
+    # heavy trade at the lows = dips sold hard. Heavy trade at the highs is ambiguous for a top
+    # (buyers absorbing, or supply being distributed), so it does not count either way.
+    lh = m["lows_vs_highs_vol"]
+    if np.isfinite(lh) and lh > 1.3:
+        add(8, "active at the lows, quiet at the highs", GOOD)
+
+    if m["lower_highs"]:
+        add(5, "each rally is topping lower", GOOD)
+    if m["higher_lows"]:
+        add(-5, "dips are holding higher", BAD)
+    if np.isfinite(m["overhead_supply"]) and m["overhead_supply"] > 0.5:
+        add(6, "plenty of trapped buyers above current price", GOOD)
+
+    surge = np.isfinite(m["vol_latest_vs_avg"]) and m["vol_latest_vs_avg"] >= 1.5
+    strong = np.isfinite(m["close_strength"]) and m["close_strength"] >= 0.65
+    weak = np.isfinite(m["close_strength"]) and m["close_strength"] <= 0.35
+    high_del = np.isfinite(m["deliv_latest_gap"]) and m["deliv_latest_gap"] > 0
+    if surge and weak and (high_del or not m["has_delivery"]):
+        add(8, "latest bar: heavy volume, closed weak", GOOD)
+    elif surge and strong:
+        add(-8, "latest bar: heavy volume, closed strong", BAD)
+
+    pts = max(-100.0, min(100.0, pts))
+    why.sort(key=lambda t: -abs(t[0]))
+    return pts, why
+
+
+def _bullets_bear(sig, m: dict) -> list:
+    tf_word = "week" if sig.tf == "W" else "day"
+    tf_plural = "weeks" if sig.tf == "W" else "days"
+    name = m["pattern_name"]
+    cs = m["close_strength"]
+    sections = []
+
+    # --- volume
+    b = []
+    if np.isfinite(m["vol_vs_lead"]):
+        r = m["vol_vs_lead"]
+        if r > 1.3:
+            b.append((f"Trading inside the {name} is {(r - 1) * 100:.0f}% heavier than the move before it "
+                      f"({qty(m['vol_pattern'])} a {tf_word}) - stock is changing hands here.",
+                      GOOD if np.isfinite(m["ud_vol"]) and m["ud_vol"] < 0.85 else FLAT))
+        elif r < 0.9:
+            b.append((f"Trading inside the {name} is {(1 - r) * 100:.0f}% lighter than before it "
+                      f"({qty(m['vol_pattern'])} vs {qty(m['vol_lead'])} a {tf_word}).", FLAT))
+        else:
+            b.append((f"Volume in the {name} is about the same as before it ({qty(m['vol_pattern'])} a {tf_word}).", FLAT))
+    if np.isfinite(m["ud_vol"]):
+        r = m["ud_vol"]
+        if r <= 0.85:
+            b.append((f"Down {tf_plural} carry {mult(1 / r) if r > 0 else 'all'} the volume of up {tf_plural} "
+                      f"({m['down_bars']} down vs {m['up_bars']} up) - sellers are the stronger side.", GOOD))
+        elif r >= 1.2:
+            b.append((f"Up {tf_plural} carry more volume than down {tf_plural} ({mult(r)}) - buyers are still the stronger side.", BAD))
+        else:
+            b.append((f"Up and down {tf_plural} carry similar volume ({mult(r)}) - no clear winner yet.", FLAT))
+    if np.isfinite(m["vol_recent_vs_pattern"]):
+        r = m["vol_recent_vs_pattern"]
+        last = f"last {m['bars_recent']} {tf_plural if m['bars_recent'] > 1 else tf_word}"
+        if r <= 0.8:
+            b.append((f"In the {last} volume dropped to {mult(r)} the {name} average - buyers are not stepping in "
+                      "above the breakdown level.", GOOD))
+        elif r >= 1.4:
+            b.append((f"In the {last} volume rose to {mult(r)} the {name} average - the stock is waking up.",
+                      GOOD if np.isfinite(cs) and cs < 0.4 else FLAT))
+    lh = m["lows_vs_highs_vol"]
+    if np.isfinite(lh) and lh >= 1.3:
+        b.append((f"Volume is {mult(lh)} heavier at the lows than the highs - every dip is being sold hard.", GOOD))
+    elif np.isfinite(lh) and lh <= 0.8:
+        b.append((f"Most of the volume trades near the highs of the {name} (the lows see only {mult(lh)} of it) - "
+                  "watch whether that is buying or stock being handed over.", FLAT))
+    if m["heavy_up"] or m["heavy_down"]:
+        b.append((f"Bursts of very heavy trade: {m['heavy_down']} on down {tf_plural}, {m['heavy_up']} on up {tf_plural}.",
+                  GOOD if m["heavy_down"] > m["heavy_up"] else (BAD if m["heavy_up"] > m["heavy_down"] else FLAT)))
+    sections.append({"title": "Volume", "bullets": b})
+
+    # --- delivery
+    b = []
+    if not m["has_delivery"]:
+        b.append(("No NSE delivery data for this symbol over the pattern - the read below is volume and price only.", FLAT))
+    else:
+        gap = m["deliv_vs_base"]
+        how = "right at its usual level" if abs(gap) < 1 else f"against its usual {pct(m['deliv_base'])} ({points(gap)})"
+        b.append((f"Delivery averages {pct(m['deliv_pattern'])} of volume in the {name}, {how}.", FLAT))
+        g = m["deliv_ud_gap"]
+        if np.isfinite(g):
+            if g <= -3:
+                b.append((f"Down {tf_plural} show higher delivery ({pct(m['deliv_down'])}) than up {tf_plural} "
+                          f"({pct(m['deliv_up'])}) - real holders are letting stock go.", GOOD))
+            elif g >= 3:
+                b.append((f"On up {tf_plural} {pct(m['deliv_up'])} of volume is taken home, on down {tf_plural} only "
+                          f"{pct(m['deliv_down'])} - buyers are still absorbing the selling.", BAD))
+            else:
+                b.append((f"Delivery is similar on up and down {tf_plural} ({pct(m['deliv_up'])} vs {pct(m['deliv_down'])}).", FLAT))
+        rg = m["deliv_recent_gap"]
+        if np.isfinite(rg) and rg >= 2:
+            b.append((f"Lately delivery has climbed to {pct(m['deliv_recent'])} ({points(rg)}).",
+                      GOOD if np.isfinite(g) and g < -3 else FLAT))
+        elif np.isfinite(rg) and rg <= -2:
+            b.append((f"Lately delivery has slipped to {pct(m['deliv_recent'])} ({points(rg)}).", FLAT))
+        if m["conviction_up"] or m["conviction_down"]:
+            b.append((f"High-conviction {tf_plural} (big volume AND delivery above normal): "
+                      f"{m['conviction_down']} on the way down, {m['conviction_up']} on the way up.",
+                      GOOD if m["conviction_down"] > m["conviction_up"] else (BAD if m["conviction_up"] > m["conviction_down"] else FLAT)))
+        if m["churn_days"] >= 2:
+            b.append((f"{m['churn_days']} heavy {tf_plural} had unusually low delivery - churn, not investment.", FLAT))
+    sections.append({"title": "Delivery", "bullets": b})
+
+    # --- price action
+    b = []
+    if np.isfinite(m["pos_in_range"]):
+        where = ("near the bottom of" if m["pos_in_range"] <= 0.2 else
+                 "in the lower half of" if m["pos_in_range"] <= 0.45 else
+                 "around the middle of" if m["pos_in_range"] <= 0.6 else "in the upper half of")
+        b.append((f"Price is {where} the {name} range ({m['pattern_low']:,.0f} to {m['pattern_high']:,.0f}), "
+                  f"{sig.distance_pct:.1f}% above the breakdown level.",
+                  GOOD if m["pos_in_range"] <= 0.45 else FLAT))
+    if m["lower_highs"]:
+        b.append(("Each rally is topping lower than the last - sellers step in earlier every time.", GOOD))
+    if m["higher_lows"]:
+        b.append(("Dips are still bottoming higher - buyers have not given up yet.", BAD))
+    if m["pivot_tests"] >= 2:
+        b.append((f"The breakdown level has been tested {m['pivot_tests']} times - repeated tests usually wear out the buyers there.",
+                  FLAT))
+    if np.isfinite(m["recent_tightness"]):
+        if m["recent_tightness"] <= 6:
+            b.append((f"The last {m['bars_recent']} {tf_plural if m['bars_recent'] > 1 else tf_word} have held a tight "
+                      f"{m['recent_tightness']:.1f}% range - coiled, ready to move.", GOOD))
+        elif m["recent_tightness"] >= 15:
+            b.append((f"The last {m['bars_recent']} {tf_plural} swung {m['recent_tightness']:.1f}% - still choppy, not settled.", FLAT))
+    if np.isfinite(m["overhead_supply"]) and m["overhead_supply"] > 0.5:
+        b.append((f"{m['overhead_supply'] * 100:.0f}% of the {name} volume was bought above today's price - "
+                  "those holders are trapped and tend to sell into rallies.", GOOD))
+    sections.append({"title": "Price action", "bullets": b})
+
+    # --- right now
+    b = []
+    chg, vs = m["bar_change_pct"], m["vol_latest_vs_avg"]
+    parts = []
+    if np.isfinite(chg):
+        parts.append(f"{'up' if chg >= 0 else 'down'} {abs(chg):.1f}%")
+    if np.isfinite(vs):
+        parts.append(f"volume {mult(vs)} the recent average")
+    if np.isfinite(cs):
+        where = "near the high" if cs >= 0.65 else ("near the low" if cs <= 0.35 else "mid-range")
+        parts.append(f"closed {where} of the {tf_word}")
+    if parts:
+        tone = GOOD if (np.isfinite(cs) and cs <= 0.35 and (vs or 0) >= 1) else (
+            BAD if (np.isfinite(cs) and cs >= 0.65 and (vs or 0) >= 1.5) else FLAT)
+        b.append((f"Latest {tf_word}: " + ", ".join(parts) + ".", tone))
+    if m["has_delivery"] and np.isfinite(m["deliv_latest"]):
+        g = m["deliv_latest_gap"]
+        how = "in line with normal" if abs(g) < 1 else f"{points(g)} vs normal"
+        b.append((f"Delivery on the latest {tf_word} was {pct(m['deliv_latest'])}, {how}.", FLAT))
+    sections.append({"title": f"Latest {tf_word}", "bullets": b})
+
+    # --- what would confirm it
+    b = []
+    b.append((f"A breakdown below {sig.pivot:,.2f} is believable on volume above {qty(m['breakout_vol'])} "
+              f"for the {tf_word} (1.5x the {name} average) and a close near the low of the {tf_word}.", FLAT))
+    b.append((f"It fails if price closes back above {sig.support:,.2f} "
+              f"({sig.risk_pct:.1f}% above here) - that breaks the {name}.", FLAT))
+    if m["has_delivery"] and np.isfinite(m["deliv_ud_gap"]) and m["deliv_ud_gap"] > 3:
+        b.append(("Weak point: the buying side is the one taking delivery. Wait for that to flip before trusting a breakdown.", BAD))
+    if m["higher_lows"]:
+        b.append(("Weak point: lows are still rising. A breakdown needs that to end first.", BAD))
+    sections.append({"title": "What to watch", "bullets": b})
+    return [s for s in sections if s["bullets"]]
+
+
+def _headline_bear(m: dict, selling: float, why: list) -> str:
+    top = why[0][1] if why else "no clear pressure either way"
+    name = m["pattern_name"]
+    if selling >= 45:
+        lead = f"This {name} is being sold into hard"
+    elif selling >= 20:
+        lead = f"Steady selling in this {name}"
+    elif selling > -20:
+        lead = f"Buyers and sellers are evenly matched in this {name}"
+    elif selling > -45:
+        lead = f"Buyers are still absorbing this {name}"
+    else:
+        lead = f"Money is still going into this {name}"
+    return f"{lead} - {top}."
+
+
+def tone_for(verdict: str) -> str:
+    """Badge colour: green when volume and delivery support the setup's own direction."""
+    if verdict in ("Strong accumulation", "Accumulation", "Strong distribution", "Distribution"):
+        return GOOD
+    return FLAT if verdict == "Mixed" else BAD
+
+
 def analyse(sig, bars: pd.DataFrame) -> dict:
-    """Attach the full read to one signal. `bars` are the signal's own timeframe."""
+    """Attach the full read to one signal. `bars` are the signal's own timeframe.
+
+    Bullish setups are scored on buying pressure (accumulation supports them),
+    bearish setups on selling pressure (distribution supports them). `pressure`
+    is always buying pressure, so the popup meter reads the same way for both.
+    """
     m = measure(sig, bars)
-    pressure, why = score(m)
-    verdict = verdict_for(pressure)
+    if getattr(sig, "bearish", False):
+        selling, why = score_bear(m)
+        pressure = -selling
+        verdict = next(label for cut, label in BEAR_VERDICTS if selling >= cut)
+        headline = _headline_bear(m, selling, why)
+        sections = _bullets_bear(sig, m)
+    else:
+        pressure, why = score(m)
+        verdict = verdict_for(pressure)
+        headline = _headline(sig, m, pressure, why)
+        sections = _bullets(sig, m)
 
     chips = []
     if m["has_delivery"]:
@@ -477,11 +730,12 @@ def analyse(sig, bars: pd.DataFrame) -> dict:
 
     return {
         "verdict": verdict,
+        "tone": tone_for(verdict),
         "pressure": round(pressure),
-        "headline": _headline(sig, m, pressure, why),
+        "headline": headline,
         "chips": chips,
         "sections": [{"title": s["title"], "bullets": [{"text": t, "tone": tone} for t, tone in s["bullets"]]}
-                     for s in _bullets(sig, m)],
+                     for s in sections],
         "has_delivery": m["has_delivery"],
         "metrics": {k: (None if isinstance(v, float) and not np.isfinite(v) else
                         (round(v, 2) if isinstance(v, float) else v))

@@ -313,3 +313,20 @@ body.resizing.rows{cursor:row-resize}
 .sl-exit{margin-left:8px;padding:1px 12px;background:#d93a3a;color:#fff;border-radius:5px;font-weight:800;font-size:14px;letter-spacing:.06em;animation:exitblink 1s steps(2,start) infinite}
 @keyframes exitblink{50%{opacity:.15}}
 @media (prefers-reduced-motion:reduce){.sl-exit{animation:none}}
+
+/* ---- scanner pattern card (builder) and watchlist direction marks ---- */
+.watch button i.dir{font-style:normal;font-size:10px;font-weight:800}
+.watch button i.dir.bullish{color:var(--up)}.watch button i.dir.bearish{color:var(--down)}.watch button i.dir.mixed{color:#b26b00}
+.pat{padding:6px 0 8px 9px;border-left:4px solid var(--up);margin-bottom:4px}
+.pat.bear{border-left-color:var(--down)}
+.pat-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;font-size:13.5px}
+.pat.bull .pat-top b{color:var(--up)}.pat.bear .pat-top b{color:var(--down)}
+.pat-top small{color:var(--muted);font-size:11.5px}
+.pat-lv{font-size:13px;color:#334155;margin-top:2px}
+.pat-lv b{color:var(--text)}
+.pat-go,.pat-bad,.pat-dist{padding:0 7px;border-radius:5px;font-size:11.5px;font-weight:700}
+.pat-go{background:#dcfce7;color:#166534}.pat-bad{background:#fee2e2;color:#b42318}.pat-dist{background:var(--line2);color:var(--muted)}
+.pat-plays{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.pat-plays button{padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:11.5px}
+.pat.bull .pat-plays button:hover{border-color:var(--up);color:var(--up)}
+.pat.bear .pat-plays button:hover{border-color:var(--down);color:var(--down)}
