@@ -324,7 +324,7 @@ const shortDate = iso => new Date(iso + 'T12:00:00+05:30').toLocaleDateString('e
 // cfg: legs, spot, days, ahead, off (fixed costs), be, band {lo,hi,mid}, hlines [{y,label,color}], vlines [{x,label,color}], now {x,y}
 const hovers = {};
 function drawChart(el, cfg) {
-  const W = el.clientWidth || 380, H = el.clientHeight || 240, pad = {l: 52, r: 8, t: 12, b: 22};
+  const W = el.clientWidth || 380, H = el.clientHeight || 240, pad = {l: 62, r: 10, t: 22, b: 28};
   const {legs, spot, off = 0} = cfg, ks = legs.map(l => l.strike), iv = legs.reduce((t, l) => t + l.iv, 0) / legs.length || 25;
   const move = Math.min(.3, Math.max(.05, 2.2 * iv / 100 * Math.sqrt(Math.max(cfg.days, 1) / 365)));
   const extra = [...(cfg.band ? [cfg.band.lo, cfg.band.hi] : []), ...(cfg.vlines || []).map(v => v.x)].filter(ok);
@@ -340,13 +340,13 @@ function drawChart(el, cfg) {
   const b = cfg.band;
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
     <defs><clipPath id="${id}-u"><rect x="0" y="0" width="${W}" height="${z}"/></clipPath><clipPath id="${id}-d"><rect x="0" y="${z}" width="${W}" height="${H}"/></clipPath></defs>
-    ${b ? `<rect x="${X(b.lo)}" y="${pad.t}" width="${Math.max(1, X(b.hi) - X(b.lo))}" height="${H - pad.t - pad.b}" fill="rgba(99,91,255,.08)"/><line x1="${X(b.mid)}" x2="${X(b.mid)}" y1="${pad.t}" y2="${H - pad.b}" stroke="#635bff" stroke-dasharray="2 3"/><text x="${X(b.lo) + 3}" y="${H - pad.b - 4}" style="fill:#635bff">AI 10–90%</text>` : ''}
+    ${b ? `<rect x="${X(b.lo)}" y="${pad.t}" width="${Math.max(1, X(b.hi) - X(b.lo))}" height="${H - pad.t - pad.b}" fill="rgba(99,91,255,.08)"/><line x1="${X(b.mid)}" x2="${X(b.mid)}" y1="${pad.t}" y2="${H - pad.b}" stroke="#635bff" stroke-dasharray="2 3"/><text x="${X(b.lo) + 3}" y="${H - pad.b - 4}" style="fill:#635bff">AI range</text>` : ''}
     ${yt.map(v => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#eef1f5"/><text x="${pad.l - 6}" y="${Y(v) + 3}" text-anchor="end">${big(v)}</text>`).join('')}
     ${xt.map(v => `<text x="${X(v)}" y="${H - 6}" text-anchor="middle">${num(v, 0)}</text>`).join('')}
     <polygon points="${area}" fill="rgba(10,155,106,.16)" clip-path="url(#${id}-u)"/><polygon points="${area}" fill="rgba(217,58,58,.14)" clip-path="url(#${id}-d)"/>
     <line x1="${pad.l}" x2="${W - pad.r}" y1="${z}" y2="${z}" stroke="#94a3b8"/>
-    ${(cfg.hlines || []).map(h => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(h.y)}" y2="${Y(h.y)}" stroke="${h.color}" stroke-dasharray="6 4"/><text x="${W - pad.r - 2}" y="${Y(h.y) - 3}" text-anchor="end" style="fill:${h.color};font-weight:600">${esc(h.label)}</text>`).join('')}
-    ${(cfg.vlines || []).map((v, i) => `<line x1="${X(v.x)}" x2="${X(v.x)}" y1="${pad.t}" y2="${H - pad.b}" stroke="${v.color}" stroke-dasharray="4 3"/><text x="${X(v.x) + 3}" y="${pad.t + 20 + i * 12}" style="fill:${v.color}">${esc(v.label)}</text>`).join('')}
+    ${(cfg.hlines || []).map(h => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(h.y)}" y2="${Y(h.y)}" stroke="${h.color}" stroke-dasharray="6 4"/><text x="${pad.l + 6}" y="${Y(h.y) - 4}" style="fill:${h.color};font-weight:600">${esc(h.label)}</text>`).join('')}
+    ${(cfg.vlines || []).map((v, i) => `<line x1="${X(v.x)}" x2="${X(v.x)}" y1="${pad.t}" y2="${H - pad.b}" stroke="${v.color}" stroke-dasharray="4 3"/><text x="${X(v.x) + 3}" y="${pad.t + 16 + i * 16}" style="fill:${v.color};font-weight:600">${esc(v.label)}</text>`).join('')}
     <polyline points="${line(exp)}" fill="none" stroke="#d93a3a" stroke-width="1.8" clip-path="url(#${id}-d)"/>
     <polyline points="${line(exp)}" fill="none" stroke="#0a9b6a" stroke-width="1.8" clip-path="url(#${id}-u)"/>
     <polyline points="${line(mod)}" fill="none" stroke="#2457d6" stroke-width="1.5" stroke-dasharray="5 4"/>
@@ -589,11 +589,14 @@ function eventHtml(e, checked, exitBy) {
   const inside = exitBy ? e.date <= exitBy : null;
   return `<div class="ev ${inside === false ? '' : 'hot'}"><b>${esc(e.title)} · ${esc(fullDate(e.date))}</b> <span>${esc(days)}${inside == null ? '' : inside ? ' · before your exit' : ' · after your exit'}</span></div>`;
 }
-function stopHtml(stop, bias) {
+const spotOf = symbol => (S.quotes['NSE:' + symbol + '-EQ'] || S.quotes[symbol])?.ltp;
+function stopHtml(stop, bias, symbol) {
   if (!stop) return '<div class="sl none">Kronos stop: run a Kronos forecast to get one</div>';
   const lo = stop.lower != null && bias !== 'bearish', hi = stop.upper != null && bias !== 'bullish';
   const parts = [lo ? `exit if stock falls below <b>₹${num(stop.lower)}</b>` : '', hi ? `exit if stock rises above <b>₹${num(stop.upper)}</b>` : ''].filter(Boolean);
-  return `<div class="sl">Kronos stop: ${parts.join(' · ') || '—'}${bias && bias !== 'range' ? ` <small>(${bias} position)</small>` : ''}</div>`;
+  const now = symbol && spotOf(symbol);
+  const hit = now && ((lo && now < stop.lower) || (hi && now > stop.upper));
+  return `<div class="sl">Kronos stop: ${parts.join(' · ') || '—'}${bias && bias !== 'range' ? ` <small>(${bias} position)</small>` : ''}${now ? ` <span class="sl-now">Stock now ₹${num(now)}</span>` : ''}${hit ? ' <span class="sl-exit">EXIT</span>' : ''}</div>`;
 }
 async function fetchContext(symbol = S.symbol) {
   try { S.ctx[symbol] = await api('/api/desk/context?' + new URLSearchParams({symbol})); } catch (e) { S.ctx[symbol] = {error: e.message}; }
@@ -604,7 +607,7 @@ function renderContext() {
   if (!c) { el.innerHTML = '<div class="ev none">Checking events…</div>'; return; }
   if (c.error) { el.innerHTML = `<div class="ev none">${esc(c.error)}</div>`; return; }
   const legs = S.legs.length && S.chain ? builderLegs() : null, bias = legs ? stratDirection(legs, S.chain.spot.ltp) : null;
-  el.innerHTML = eventHtml(c.event, c.events_checked, S.chain?.expiry_date) + stopHtml(c.stop, bias);
+  el.innerHTML = eventHtml(c.event, c.events_checked, S.chain?.expiry_date) + stopHtml(c.stop, bias, S.symbol);
 }
 
 // ---------- active position monitor ----------
@@ -692,9 +695,9 @@ function positionDetail(t) {
   const off = -entryCosts(p), spot = c.spot.ltp, m = stats(legs, spot, c.days, c.atm_iv, off), pnl = livePnl(t);
   const credit = p.entry_credit > 0, maxProfit = m.maxProfit, maxLoss = p.plan.unlimited_loss ? null : p.plan.max_loss;
   const hlines = [];
-  if (credit) hlines.push({y: p.entry_credit * .5, label: 'Target · 50% of credit', color: '#0a9b6a'});
-  else if (ok(maxProfit) && maxProfit !== Infinity) hlines.push({y: maxProfit * .5, label: 'Target · 50% of max profit', color: '#0a9b6a'});
-  if (maxLoss) hlines.push({y: -maxLoss * .5, label: 'Review · half max loss', color: '#d93a3a'});
+  if (credit) hlines.push({y: p.entry_credit * .5, label: 'Target (50% of credit)', color: '#0a9b6a'});
+  else if (ok(maxProfit) && maxProfit !== Infinity) hlines.push({y: maxProfit * .5, label: 'Target (50% of max profit)', color: '#0a9b6a'});
+  if (maxLoss) hlines.push({y: -maxLoss * .5, label: 'Review (half max loss)', color: '#d93a3a'});
   const vlines = [{x: p.entry_spot, label: 'Entry ' + num(p.entry_spot, 0), color: '#64748b'}];
   const st = p.plan.underlying_stop;
   if (st?.lower != null) vlines.push({x: st.lower, label: 'Stop ' + num(st.lower, 0), color: '#d93a3a'});
@@ -735,12 +738,13 @@ function renderPositions() {
     const p = t.payload, pnl = livePnl(t), isOpen = S.posOpen === t.id; if (pnl == null) all = false; else total += pnl;
     const sig = p.exit_signal && p.exit_signal !== 'Monitor' ? `<span class="signal ${p.exit_signal.startsWith('EXIT') ? 'danger' : ''}">${esc(p.exit_signal)}</span>` : `<small>Exit by ${esc(p.exit_by || p.plan.exit_by || '')}</small>`;
     const g = S.monitor?.positions?.[t.id];
-    return `<tr class="prow ${isOpen ? 'on' : ''} ${g ? 'g-' + (ACTION[g.action] || '') : ''}" data-row="${esc(t.id)}" title="Show payoff and Kronos guidance"><td><b>${isOpen ? '▾' : '▸'} ${esc(p.symbol)}</b><br><small>${esc(p.plan.expiry)}</small><div>${guideBadge(g)}</div></td><td>${esc(p.plan.name)}<div class="legtxt">${esc(legText(p))}</div>${g ? `<div class="rowctx">${eventHtml(g.event, true, p.exit_by || p.plan.exit_by)}${stopHtml(g.stop, g.stats?.bias)}</div>` : ''}</td>
+    return `<tr class="prow ${isOpen ? 'on' : ''} ${g ? 'g-' + (ACTION[g.action] || '') : ''}" data-row="${esc(t.id)}" title="Show payoff and Kronos guidance"><td><b>${isOpen ? '▾' : '▸'} ${esc(p.symbol)}</b><br><small>${esc(p.plan.expiry)}</small><div>${guideBadge(g)}</div></td><td>${esc(p.plan.name)}<div class="legtxt">${esc(legText(p))}</div>${g ? `<div class="rowctx">${eventHtml(g.event, true, p.exit_by || p.plan.exit_by)}${stopHtml(g.stop, g.stats?.bias, p.symbol)}</div>` : ''}</td>
       <td class="n">${p.entry_credit >= 0 ? 'Cr' : 'Dr'} ${inr(Math.abs(p.entry_credit))}</td><td class="n">${p.plan.unlimited_loss ? 'Unlimited' : inr(p.plan.max_loss)}</td>
       <td class="n"><b class="${tone(pnl)}">${pnl == null ? '…' : sinr(pnl)}</b></td><td class="n ${tone(p.mark?.net_pnl)}">${p.mark ? sinr(p.mark.net_pnl) : '—'}</td><td>${sig}</td>
       <td><button data-mark="${esc(t.id)}">Mark</button> <button class="close" data-close="${esc(t.id)}">Exit</button></td></tr>
       ${isOpen ? `<tr class="pdetail"><td colspan="8">${positionDetail(t)}</td></tr>` : ''}`;
   }).join('')}</tbody></table>` : '<p class="empty">No open paper positions. Build a strategy on the chain and press Paper trade.</p>';
+  $('pos-spots').innerHTML = [...new Set(open.map(t => t.payload.symbol))].map(sym => { const q = S.quotes['NSE:' + sym + '-EQ'], r = ok(q?.chp) ? q.chp : null; return `<a class="spot" href="https://www.tradingview.com/chart/?symbol=${encodeURIComponent('NSE:' + sym.replace(/[-&]/g, '_'))}" target="_blank" rel="noopener" title="Open ${esc(sym)} on TradingView"><span>${esc(sym)}</span><b>${q ? num(q.ltp) : '…'}</b>${r == null ? '' : `<small class="${tone(r)}">${pct(r)}</small>`}</a>`; }).join('');
   $('pos-total').textContent = open.length ? (all ? 'Total ' + sinr(total) : 'Total …') : '';
   $('pos-total').className = 'total ' + tone(total);
   const realised = closed.reduce((a, t) => a + (t.payload.mark?.net_pnl || 0), 0);
@@ -775,7 +779,7 @@ async function positionChain(t) {
 let posTimer = null;
 async function pollPositions() {
   clearTimeout(posTimer);
-  const symbols = [...new Set(openTrades().flatMap(t => t.payload.legs.map(l => l.symbol)))].slice(0, 50);
+  const symbols = [...new Set(openTrades().flatMap(t => [`NSE:${t.payload.symbol}-EQ`, ...t.payload.legs.map(l => l.symbol)]))].slice(0, 50);
   if (symbols.length && !paused()) {
     try { const r = await api('/api/desk/ltp?' + new URLSearchParams({symbols: symbols.join(',')})); Object.assign(S.quotes, r.quotes); } catch (e) { /* keep last values */ }
     const t = openTrades().find(x => x.id === S.posOpen);

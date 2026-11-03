@@ -205,7 +205,7 @@ button.link:disabled{color:var(--faint);cursor:default}
 .ai-empty p{color:var(--muted);margin:0}
 .ai-chart{height:330px;position:relative;flex:none}
 .ai-chart svg,.pos-chart svg{display:block;width:100%;height:100%}
-.ai-chart text,.pos-chart text{font-size:10px;fill:var(--muted)}
+.ai-chart text,.pos-chart text{font-size:13px;fill:var(--muted)}
 .ai-chart .tip,.pos-chart .tip{position:absolute;pointer-events:none;background:rgba(15,23,42,.92);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;white-space:nowrap}
 button.primary.small{padding:5px 10px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:600;white-space:nowrap}
 
@@ -214,7 +214,7 @@ button.primary.small{padding:5px 10px;border-radius:6px;border:1px solid var(--a
 .prow:hover td,.prow.on td{background:#f5f8ff}
 .pdetail>td{background:#fbfcfe;padding:12px}
 .pos-detail{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px}
-.pos-chart{height:300px;position:relative;background:#fff;border:1px solid var(--line);border-radius:8px}
+.pos-chart{height:380px;position:relative;background:#fff;border:1px solid var(--line);border-radius:8px}
 .pos-stats{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;align-content:start}
 .pos-stats div{background:#fff;padding:7px 10px}
 .pos-stats div:last-child{grid-column:1/-1}
@@ -301,3 +301,15 @@ body.resizing.rows{cursor:row-resize}
 .pos-alert button{margin-left:auto;padding:4px 10px;border-radius:6px;border:1px solid currentColor;background:#fff;color:inherit;font-weight:600}
 .tabs button.alert b{background:#dc2626}
 @media (max-width:1150px){.gstats{grid-template-columns:repeat(2,1fr)}}
+
+.pos-spots{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 12px}
+.pos-spots .spot{display:flex;align-items:baseline;gap:10px;padding:8px 16px;background:#fff;border:1px solid var(--line);border-radius:8px}
+.pos-spots .spot span{font-weight:600;color:var(--muted)}
+.pos-spots .spot b{font-size:26px;font-weight:800;letter-spacing:-.01em}
+.pos-spots .spot small{font-size:14px;font-weight:600}
+.sl-now{margin-left:8px;padding:1px 8px;background:#fff4cc;border-radius:5px;font-weight:800;font-size:14px;color:#7a5200}
+.pos-spots a.spot{text-decoration:none;color:inherit;cursor:pointer}
+.pos-spots a.spot:hover{border-color:#635bff;box-shadow:0 0 0 2px rgba(99,91,255,.15)}
+.sl-exit{margin-left:8px;padding:1px 12px;background:#d93a3a;color:#fff;border-radius:5px;font-weight:800;font-size:14px;letter-spacing:.06em;animation:exitblink 1s steps(2,start) infinite}
+@keyframes exitblink{50%{opacity:.15}}
+@media (prefers-reduced-motion:reduce){.sl-exit{animation:none}}

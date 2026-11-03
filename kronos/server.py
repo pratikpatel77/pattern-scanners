@@ -129,8 +129,28 @@ def create_server(service,port=8765):
             except Exception:
                 self.send(500,{'error':'Unable to read local research data.'})
 
+        def fno_symbols(self):
+            """Stocks with listed options, from the broker instrument masters (FYERS first, Definedge as backup)."""
+            try:
+                return sorted(service.options.market.universe())
+            except Exception:
+                pass
+            try:
+                return sorted({key[0] for key in service.prices.option_tokens()})
+            except Exception:
+                return None
+
         def send_scanner(self,path):
             body=path.read_bytes()
+            fno=self.fno_symbols()
+            if fno and b'</body>' in body:
+                script=('<style>.pill.fo{background:#ede9ff;color:#5b3fd1;margin-left:4px}</style><script>(function(){var F=new Set('
+                        +json.dumps(fno).replace('</','<\/')+');function mark(){document.querySelectorAll("td.sym").forEach(function(td){'
+                        'var a=td.querySelector("a");if(!a||td.querySelector(".pill.fo")||!F.has(a.textContent.trim()))return;'
+                        'var s=document.createElement("span");s.className="pill fo";s.title="Has stock options (F&O)";s.textContent="FO";'
+                        'var both=td.querySelector(".pill.both");if(both)both.after(s);else{var tf=td.querySelector(".pill.tf");(tf||a).after(s)}})}'
+                        'new MutationObserver(mark).observe(document.body,{childList:true,subtree:true});mark()})()</script>').encode()
+                body=body.replace(b'</body>',script+b'</body>',1)
             self.send_response(200)
             self.send_header('Content-Type','text/html; charset=utf-8')
             self.send_header('Content-Length',str(len(body)))

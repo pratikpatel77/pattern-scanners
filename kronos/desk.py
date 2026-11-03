@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 
-from .options_market import IST, clock, market_open, number
+from .options_market import FYERS_COOLDOWN, IST, clock, market_open, number
 from .options_math import bs, book_fill, charges, intrinsic
 
 CHAIN_URL = 'https://api-t1.fyers.in/data/options-chain-v3'
@@ -277,7 +277,16 @@ class FastDesk:
         symbols = list(dict.fromkeys(s for s in symbols if s))
         if not 1 <= len(symbols) <= 50 or any(not s.startswith('NSE:') or len(s) > 60 for s in symbols):
             raise ValueError('Request 1 to 50 NSE contracts.')
-        rows = self.market._get(QUOTES_URL, {'symbols': ','.join(symbols)}, True)
+        market = self.market
+        if market.fallback is not None and time.monotonic() < market.fyers_down_until:
+            return self._ltp_definedge(symbols)
+        try:
+            rows = market._get(QUOTES_URL, {'symbols': ','.join(symbols)}, True)
+        except ValueError:
+            if market.fallback is None:
+                raise
+            market.fyers_down_until = time.monotonic() + FYERS_COOLDOWN
+            return self._ltp_definedge(symbols)
         out = {}
         for row in rows if isinstance(rows, list) else []:
             v = row.get('v') or {}
@@ -285,6 +294,27 @@ class FastDesk:
                 out[row.get('n')] = dict(ltp=number(v['lp']), bid=number(v.get('bid')), ask=number(v.get('ask')),
                                          chp=number(v.get('chp')))
         return dict(quotes=out, time=clock().isoformat(), market_open=market_open())
+
+    def _ltp_definedge(self, symbols):
+        """Same shape as ltp(), priced by Definedge when FYERS cannot answer. Contracts it cannot price are omitted."""
+        market = self.market
+        try:
+            market.universe()   # public instrument list, no login needed
+        except ValueError:
+            pass
+        out, error = {}, None
+        for symbol in symbols:
+            try:
+                item = market.fallback.definedge_item(symbol, market.by_symbol.get(symbol))
+            except ValueError as exc:
+                error = exc
+                continue
+            bids, asks = item.get('bids') or [], item.get('ask') or []
+            out[symbol] = dict(ltp=item['ltp'], bid=bids[0]['price'] if bids else 0., ask=asks[0]['price'] if asks else 0.,
+                               chp=0., source='Definedge')
+        if not out and error:
+            raise error
+        return dict(quotes=out, time=clock().isoformat(), market_open=market_open(), source='Definedge')
 
     # ---------- paper trade from custom legs ----------
     def open_paper(self, request):
