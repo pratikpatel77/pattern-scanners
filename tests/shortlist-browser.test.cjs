@@ -1,0 +1,110 @@
+// Requires Playwright; uses an isolated Python fixture and temporary SQLite data.
+const assert = require('node:assert/strict');
+const {spawn} = require('node:child_process');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const {chromium} = require('playwright');
+
+(async () => {
+  const child = spawn(process.env.PYTHON || 'python',['tests/shortlist_ui_fixture.py'],{cwd:path.join(__dirname,'..'),windowsHide:true});
+  let browser;
+  try {
+    const url = await new Promise((resolve,reject) => {
+      let output=''; const timer=setTimeout(()=>reject(new Error('Fixture startup timed out')),20000);
+      child.stdout.on('data',chunk=>{output+=chunk;const match=output.match(/http:\/\/127\.0\.0\.1:\d+/);if(match){clearTimeout(timer);resolve(match[0]);}});
+      child.once('error',error=>{clearTimeout(timer);reject(error);});
+      child.once('exit',code=>{clearTimeout(timer);reject(new Error('Fixture exited: '+code));});
+      child.stderr.on('data',chunk=>process.stderr.write(chunk));
+    });
+    browser = await chromium.launch({headless:true,channel:'msedge'});
+    const page = await browser.newPage({viewport:{width:1440,height:980}});
+    const errors=[];
+    page.on('pageerror',e=>errors.push(e.message));
+    await page.goto(url+'/shortlist.html');
+    await page.getByText('Saved setups loaded.',{exact:false}).waitFor();
+    assert.equal(await page.locator('#rows tr').count(),5);
+    assert.equal(await page.locator('#count-conflict').textContent(),'1');
+    const pin=page.getByRole('button',{name:'Pin ALPHA',exact:true}).first();
+    await pin.click();
+    await page.getByRole('button',{name:'Unpin ALPHA',exact:true}).first().waitFor();
+    await page.locator('[data-note="ALPHA"]').first().click();
+    const note='Wait for close > trigger; <img src=x onerror=alert(1)>';
+    await page.locator('#note').fill(note);
+    await page.getByRole('button',{name:'Save note',exact:true}).click();
+    await page.locator('#note-dialog').waitFor({state:'hidden'});
+    assert.equal(await page.locator('[data-note="ALPHA"]').first().textContent(),note);
+    assert.equal(await page.locator('#rows img').count(),0);
+    await page.locator('#list').selectOption('saved');
+    assert.equal(await page.locator('#rows tr').count(),2);
+    await page.reload();
+    await page.getByText('Saved setups loaded.',{exact:false}).waitFor();
+    assert.equal(await page.locator('#list').inputValue(),'saved');
+    assert.equal(await page.locator('[data-note="ALPHA"]').first().textContent(),note);
+    await page.getByRole('button',{name:'Clear filters',exact:true}).click();
+    await page.getByRole('button',{name:'Refresh quotes',exact:true}).click();
+    await page.getByText('Checked 4/4 stocks',{exact:false}).waitFor();
+    assert.equal(await page.locator('#count-near').textContent(),'1');
+    assert.equal(await page.locator('#count-stop').textContent(),'1');
+    assert.ok((await page.locator('#rows tr').filter({has:page.getByText('OLD',{exact:true})}).textContent()).includes('Quote date/time unknown'));
+    await page.locator('#review').selectOption('Past stop');
+    assert.equal(await page.locator('#rows tr').count(),1);
+    assert.ok((await page.locator('#rows').textContent()).includes('GAMMA'));
+    const downloadPromise=page.waitForEvent('download');
+    await page.getByRole('button',{name:'Export CSV'}).click();
+    const download=await downloadPromise;
+    const csv=await fs.readFile(await download.path(),'utf8');
+    assert.ok(csv.includes('GAMMA'));
+    assert.ok(!csv.includes('ALPHA'));
+    assert.ok(csv.includes('SYNTHETIC TEST'));
+    await page.getByRole('button',{name:'Clear filters',exact:true}).click();
+    const dir=path.join(__dirname,'../.cache/shortlist-qa');
+    await fs.mkdir(dir,{recursive:true});
+    await page.screenshot({path:path.join(dir,'desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:path.join(dir,'mobile.png'),fullPage:true});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    // A failed refresh must clear current labels, even if last good prices remain visible.
+    await page.route('**/api/quotes?**',route=>route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({error:'Synthetic connection failure'})}));
+    await page.getByRole('button',{name:'Refresh quotes',exact:true}).click();
+    await page.getByText('quotes failed',{exact:false}).waitFor();
+    assert.equal(await page.locator('#count-near').textContent(),'0');
+    assert.equal(await page.locator('#count-stop').textContent(),'0');
+    await page.unroute('**/api/quotes?**');
+    // Verify the workspace can reach the new view and preserves the existing tabs.
+    await page.setViewportSize({width:1440,height:980});
+    await page.goto(url+'/');
+    await page.getByRole('button',{name:'Shortlist',exact:true}).click();
+    const frame=page.frameLocator('#shortlist-frame');
+    await frame.getByRole('heading',{name:'Trading shortlist'}).waitFor();
+    await frame.getByText('Saved setups loaded.',{exact:false}).waitFor();
+    assert.equal(await frame.locator('#count-saved').textContent(),'1');
+    assert.equal(await page.getByRole('button',{name:'Options desk',exact:true}).count(),1);
+    assert.equal(await page.getByRole('button',{name:'AI research',exact:true}).count(),0);
+    await page.reload();
+    await frame.getByRole('heading',{name:'Trading shortlist'}).waitFor();
+    assert.equal(await page.locator('#shortlist-frame').isVisible(),true);
+    assert.equal(await page.getByRole('button',{name:'Shortlist',exact:true}).getAttribute('aria-selected'),'true');
+    await page.getByRole('button',{name:'Refresh prices',exact:true}).click();
+    assert.equal(await page.locator('#shortlist-frame').isVisible(),true);
+    await page.screenshot({path:path.join(dir,'workspace.png'),fullPage:true});
+    // Follow a bullish row into the existing research iframe without leaving the workspace.
+    await page.route('**/ai?**',route=>route.fulfill({status:200,contentType:'text/html',body:'<h1>Research route fixture</h1>'}));
+    await frame.locator('[data-ai="ALPHA"]').first().click();
+    await page.frameLocator('#ai-frame').getByRole('heading',{name:'Research route fixture'}).waitFor();
+    assert.ok((await page.locator('#ai-frame').getAttribute('src')).includes('symbol=ALPHA'));
+    assert.equal(await page.locator('#ai-frame').isVisible(),true);
+    await page.route('**/options',route=>route.fulfill({status:200,contentType:'text/html',body:'<h1>Options fixture</h1>'}));
+    await page.getByRole('button',{name:'Options desk',exact:true}).click();
+    await page.frameLocator('#options-frame').getByRole('heading',{name:'Options fixture'}).waitFor();
+    await page.reload();
+    await page.frameLocator('#options-frame').getByRole('heading',{name:'Options fixture'}).waitFor();
+    assert.equal(await page.locator('#options-frame').isVisible(),true);
+    await page.getByRole('button',{name:'Pattern scanner',exact:true}).click();
+    assert.equal(await page.locator('#scanner-frame').isVisible(),true);
+    assert.deepEqual(errors,[]);
+    console.log('Browser checks passed: pins, notes, restart persistence, filters, quote states, failed quotes, CSV, desktop, mobile and workspace tabs.');
+  } finally {
+    if(browser) await browser.close();
+    child.kill();
+  }
+})().catch(error=>{console.error(error);process.exitCode=1;});

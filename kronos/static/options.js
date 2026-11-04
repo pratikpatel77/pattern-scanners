@@ -21,7 +21,7 @@ function view(name){
 for(const v of VIEWS)$(v+'-tab').onclick=()=>view(v);
 function marketOpenNow(){
   const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(x=>[x.type,x.value]));
-  const m=Number(p.hour)*60+Number(p.minute);return !['Sat','Sun'].includes(p.weekday)&&m>=555&&m<925;
+  const m=Number(p.hour)*60+Number(p.minute);return !['Sat','Sun'].includes(p.weekday)&&m>=555&&m<930;
 }
 const pct=x=>x==null||!isFinite(x)?'—':(x>0?'+':'')+Number(x).toFixed(1)+'%';
 const signed=x=>x==null?'—':(x>0?'+':'')+money(x);

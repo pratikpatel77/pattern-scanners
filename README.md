@@ -115,6 +115,12 @@ symbol and timeframe in the AI prediction tab. SAI Research includes sampled
 price forecasts, interactive charts, daily monitoring, historical tests and
 forecast-versus-actual quality checks. It uses one shared forecast profile.
 
+The **Shortlist** tab adds saved stock pins and notes, current trigger/stop checks,
+daily/weekly and direction filters, conflicting-direction flags, and CSV export.
+Use **Refresh quotes** there to check prices; saved or old quotes are clearly marked.
+The selected page stays open when you refresh the browser.
+See [SHORTLIST.md](SHORTLIST.md) for the review rules and storage details.
+
 Daily Watch checks the scanner cache for completed candles; run the scanner to
 fetch new prices. Forecasts are sampled scenarios, and their frequencies are
 not calibrated market probabilities. Model weights do not retrain automatically.

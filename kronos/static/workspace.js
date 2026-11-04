@@ -1,15 +1,29 @@
 'use strict';
 const scanner=document.getElementById('scanner-frame'),ai=document.getElementById('ai-frame'),options=document.getElementById('options-frame');
 const optionsTab=document.createElement('button');optionsTab.id='options-tab';optionsTab.textContent='Options desk';optionsTab.setAttribute('aria-selected','false');document.querySelector('nav').appendChild(optionsTab);
+const shortlist=document.getElementById('shortlist-frame');
+const shortlistTab=document.createElement('button');shortlistTab.id='shortlist-tab';shortlistTab.textContent='Shortlist';shortlistTab.setAttribute('aria-selected','false');optionsTab.before(shortlistTab);
+shortlistTab.onclick=()=>{if(!shortlist.getAttribute('src'))shortlist.src='/shortlist.html';show('shortlist');};
 let scannerExpanded=false;
 let scannerQuotes={},priceLoading=false,quotedSymbols='',marketToken='',revision=null,scannerObserver=null;
 function scannerSymbols(){return [...new Set([...(scanner.contentDocument?.querySelectorAll('td.sym a')||[])].map(a=>a.textContent.trim()))];}
 function show(view){
+  if(!['scanner','shortlist','options','ai'].includes(view))view='scanner';
+  if(view==='shortlist'&&!shortlist.getAttribute('src'))shortlist.src='/shortlist.html';
+  if(view==='options'&&!options.getAttribute('src'))options.src='/options';
+  if(view==='ai'&&!ai.getAttribute('src'))ai.src='/ai';
+  history.replaceState(null,'','#'+view);
   scanner.hidden=view!=='scanner';ai.hidden=view!=='ai';options.hidden=view!=='options';
+  shortlist.hidden=view!=='shortlist';shortlistTab.setAttribute('aria-selected',view==='shortlist');
   optionsTab.setAttribute('aria-selected',view==='options');
   document.getElementById('scanner-tab').setAttribute('aria-selected',view==='scanner');
-  if(view==='scanner')refreshScannerPrices();else (view==='ai'?ai:options).contentWindow?.postMessage('refresh-prices',location.origin);
+  if(view==='scanner')refreshScannerPrices();else (view==='ai'?ai:view==='shortlist'?shortlist:options).contentWindow?.postMessage('refresh-prices',location.origin);
 }
+window.addEventListener('message',event=>{
+  if(event.origin!==location.origin||event.source!==shortlist.contentWindow||event.data?.type!=='open-research')return;
+  const symbol=event.data.symbol;if(typeof symbol!=='string'||! /^[A-Z0-9&_-]{1,40}$/.test(symbol))return;
+  ai.src='/ai?'+new URLSearchParams({symbol,tf:event.data.timeframe==='W'?'W':'D'});show('ai');
+});
 optionsTab.onclick=()=>{if(!options.getAttribute('src'))options.src='/options';show('options');};
 document.getElementById('scanner-tab').onclick=()=>show('scanner');
 document.getElementById('refresh-report').onclick=()=>startRefresh();
@@ -55,7 +69,7 @@ function setStatus(text,error=false){const el=document.getElementById('market-st
 async function refreshStatus(){
   const response=await fetch('/api/market/status',{cache:'no-store'}),data=await response.json();
   setStatus(data.message,data.status==='failed'||data.status==='partial');
-  if(data.revision&&data.revision!==revision){revision=data.revision;scanner.src='/scanner?refresh='+Date.now();for(const frame of [ai,options])frame.contentWindow?.postMessage('patterns-updated',location.origin);}
+  if(data.revision&&data.revision!==revision){revision=data.revision;scanner.src='/scanner?refresh='+Date.now();for(const frame of [ai,options,shortlist])frame.contentWindow?.postMessage('patterns-updated',location.origin);}
   if(data.status==='running')setTimeout(()=>refreshStatus().catch(e=>setStatus(e.message,true)),2000);
 }
 async function startRefresh(){
@@ -68,4 +82,5 @@ async function startRefresh(){
     await refreshStatus();
   }catch(e){setStatus(e.message,true);}
 }
+show(location.hash.slice(1)||'scanner');
 startRefresh();

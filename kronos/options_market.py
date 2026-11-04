@@ -26,9 +26,25 @@ def number(value, default=0.):
         return default
 
 
+_live_seen = 0.
+
+
+def note_live(age):
+    """Record that a broker quote traded within the last 30s: the exchange is trading right now."""
+    global _live_seen
+    if age is not None and 0 <= age <= 30:
+        _live_seen = time.time()
+
+
 def market_open(stamp=None):
     stamp = stamp or clock()
-    return stamp.weekday() < 5 and 555 <= stamp.hour * 60 + stamp.minute < 925
+    if stamp.weekday() >= 5:
+        return False
+    minute = stamp.hour * 60 + stamp.minute
+    if 555 <= minute < 930:
+        return True
+    # Outside the scheduled hours, a broker quote that traded seconds ago (late open, extended session) still proves it is live.
+    return 540 <= minute < 960 and time.time() - _live_seen <= 60
 
 
 class LiveMarket:
@@ -127,6 +143,7 @@ class LiveMarket:
         if stamp > 1e12:
             stamp /= 1000
         age = clock().timestamp() - stamp
+        note_live(age if stamp else None)
         bids, asks = item.get('bids') or [], item.get('ask') or []
         bid = number(bids[0].get('price')) if bids else 0
         ask = number(asks[0].get('price')) if asks else 0
@@ -178,6 +195,7 @@ class LiveMarket:
             if stamp > 1e12:
                 stamp /= 1000
             age = fetched.timestamp() - stamp if stamp else None
+            note_live(age)
             result[symbol] = dict(symbol=symbol, ltp=price, change_pct=number(value.get('chp')),
                 quote_time=stamp or None, fetched_at=fetched.isoformat(),
                 source='FYERS', timestamp_kind='quote',

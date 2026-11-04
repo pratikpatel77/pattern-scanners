@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trading shortlist</title><link rel="stylesheet" href="/shortlist.css">
+<script defer src="/shortlist-model.js"></script><script defer src="/shortlist.js"></script></head>
+<body><main>
+<header><div><p class="eyebrow">DAILY REVIEW</p><h1>Trading shortlist</h1><p>Keep your best setups and the reason you are watching them.</p></div>
+<div class="actions"><button id="refresh">Refresh quotes</button><button id="export">Export CSV</button></div></header>
+<div id="status" class="status" role="status">Loading saved setups…</div>
+<section class="stats" aria-label="Review counts"><div><strong id="count-saved">0</strong><span>Pinned stocks</span></div><div><strong id="count-near">0</strong><span>Near trigger · current quote</span></div><div><strong id="count-stop">0</strong><span>Past stop · current quote</span></div><div><strong id="count-conflict">0</strong><span>Stocks with both directions</span></div></section>
+<div class="filters">
+<label>Search<input id="search" type="search" placeholder="Stock or note" autocomplete="off"></label>
+<label>List<select id="list"><option value="all">All setups</option><option value="saved">Pinned stocks</option></select></label>
+<label>Direction<select id="direction"><option value="all">Both</option><option value="long">Bullish</option><option value="short">Bearish</option></select></label>
+<label>Timeframe<select id="timeframe"><option value="all">Daily + weekly</option><option value="D">Daily</option><option value="W">Weekly</option></select></label>
+<label>Review<select id="review"><option value="all">All states</option><option>Near trigger</option><option>Past trigger</option><option>Past stop</option><option>Waiting</option><option>Check quote</option><option>No setup</option><option>Check levels</option></select></label>
+<label>Sort<select id="sort"><option value="distance">Closest to trigger</option><option value="score">Pattern score</option><option value="symbol">Stock name</option></select></label>
+<button id="clear">Clear filters</button></div>
+<div class="table-heading"><span id="count" role="status"></span><span>Near = within 1% before trigger</span></div>
+<div class="table-wrap"><table><thead><tr><th scope="col">Save</th><th scope="col">Stock / setup</th><th scope="col">Price / source</th><th scope="col">Trigger</th><th scope="col">Stop</th><th scope="col">To trigger</th><th scope="col">Review</th><th scope="col">Your note</th><th scope="col">Open</th></tr></thead><tbody id="rows"></tbody></table></div>
+<p class="help">Trigger checks use the last price, not a confirmed candle breakout. A past-stop reading means review the setup. Saved levels may be old: check the setup date and chart. Pattern scores describe shape, not profit odds. Bearish stock setups are research ideas; this page does not place trades.</p>
+<p class="help">Pins and notes stay in your local research database across restarts. Quotes refresh on request and become unverified after 60 seconds. CSV exports only the rows shown, with source and time.</p>
+</main>
+<dialog id="note-dialog"><form id="note-form"><h2 id="note-title">Review note</h2><label for="note">Entry condition, invalidation or reason to wait</label><textarea id="note" maxlength="2000" rows="6" placeholder="Example: Wait for a completed daily close above the trigger. Check results date before entry."></textarea><p id="note-error" role="alert"></p><div class="actions"><button id="cancel-note" type="button">Cancel</button><button id="save-note" type="submit">Save note</button></div></form></dialog>
+</body></html>

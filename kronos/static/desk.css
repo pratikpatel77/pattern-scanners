@@ -214,6 +214,7 @@ button.link:disabled{color:var(--faint);cursor:default}
 .ai-chart{height:330px;position:relative;flex:none}
 .ai-chart svg,.pos-chart svg{display:block;width:100%;height:100%}
 .ai-chart text,.pos-chart text{font-size:13px;fill:var(--muted)}
+.ai-chart text.h{paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
 .ai-chart .tip,.pos-chart .tip{position:absolute;pointer-events:none;background:rgba(15,23,42,.92);color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;white-space:nowrap}
 button.primary.small{padding:5px 10px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:600;white-space:nowrap}
 

@@ -10,3 +10,4 @@ button{padding:8px 13px;border-radius:7px}
 #market-status{padding:5px 20px;min-height:26px;flex-shrink:0;font-size:11px}
 main{height:auto;flex:1;min-height:0}
 @media(max-width:650px){header{height:auto;min-height:100px;padding:8px;gap:8px}.identity{font-size:15px}nav{gap:4px}button{padding:8px;font-size:12px}#market-status{padding:5px 10px}}
+@media(max-width:1000px){header{height:auto;flex-wrap:wrap;gap:10px}nav{flex-wrap:wrap}}

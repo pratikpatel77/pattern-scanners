@@ -451,9 +451,13 @@ function aiOverlay() {
   const t = openTrades().find(x => x.payload.symbol === S.symbol); if (!t) return null;
   const p = t.payload, sameExp = c && c.expiry_date === p.plan.expiry;
   const ivOf = sym => (sameExp ? c.rows.flatMap(r => [r.CE, r.PE]).find(o => o?.symbol === sym)?.iv : null) || c?.atm_iv || 25;
-  return {kind: 'position', name: p.plan.name, off: -entryCosts(p), stop: p.plan.underlying_stop,
+  const legs = p.legs.map(l => ({type: l.type, strike: l.strike, qty: l.qty, lot: l.lot, entry: l.entry_fill, iv: ivOf(l.symbol)}));
+  // Stop saved with the trade, else the monitor's current Kronos stop; only the side that hurts this trade.
+  const rawStop = p.plan.underlying_stop || S.monitor?.positions?.[t.id]?.stop, bias = stratDirection(legs, p.entry_spot);
+  const stop = rawStop ? {lower: bias === 'bearish' ? null : rawStop.lower, upper: bias === 'bullish' ? null : rawStop.upper} : null;
+  return {kind: 'position', name: p.plan.name, off: -entryCosts(p), stop,
     entry: {date: String(p.entry_time || t.created || '').slice(0, 10), spot: p.entry_spot},
-    legs: p.legs.map(l => ({type: l.type, strike: l.strike, qty: l.qty, lot: l.lot, entry: l.entry_fill, iv: ivOf(l.symbol)})),
+    legs,
     daysAt: d => Math.max(0, daysUntil(p.plan.expiry) - daysUntil(d))};
 }
 // Odds the strategy is in profit on a forecast day, plus its P&L at the bad / typical / good closes.
@@ -623,7 +627,7 @@ function updateAILive() {
   });
 }
 function drawForecast(el, a, spot, o = null) {
-  const f = a.forecast, h = f.history.slice(-30), rows = f.rows, W = el.clientWidth || 700, H = el.clientHeight || 320, pad = {l: 56, r: 64, t: 14, b: 26};
+  const f = a.forecast, h = f.history.slice(-30), rows = f.rows, W = el.clientWidth || 700, H = el.clientHeight || 320, pad = {l: 56, r: 98, t: 14, b: 26};
   // Forecast days get 3x the width of history days so the fan is readable.
   const n = h.length + rows.length, unit = i => i < h.length ? i : h.length - 1 + (i - h.length + 1) * 3, span = unit(n - 1) || 1;
   const X = i => pad.l + unit(i) / span * (W - pad.l - pad.r);
@@ -637,29 +641,40 @@ function drawForecast(el, a, spot, o = null) {
   const today = todayIST(), ti = rows.findIndex(r => r.date === today), nowX = ti >= 0 ? fx(ti) : h.at(-1).date === today ? X(ai) : fx(0);
   const dates = [...h.map(r => r.date), ...rows.map(r => r.date)], step = Math.ceil(h.length / 5);
   const yt = Array.from({length: 5}, (_, i) => lo + (hi - lo) * i / 4);
+  // Right-hand labels are collected, then spaced apart so they never overlap each other or the lines.
+  const gut = [], lab = (v, text, color, bold = true) => { if (ok(v)) gut.push({y: Y(v), text, color, bold}); };
   // Strategy overlay: price bands where it is in profit on the last forecast day, and its breakevens.
   let zones = '', bes = '', marks = '';
   if (o) {
     const days = o.daysAt(rows.at(-1).date), N = 120, ps = Array.from({length: N + 1}, (_, i) => lo + (hi - lo) * i / N), pl = ps.map(v => pnlModel(o.legs, v, days, 0, o.off));
     for (let i = 0, j; i < N; i = j) {
       j = i + 1; while (j < N && (pl[j] > 0) === (pl[i] > 0)) j++;
-      zones += `<rect x="${X(ai)}" y="${Y(ps[j])}" width="${W - pad.r - X(ai)}" height="${Math.max(0, Y(ps[i]) - Y(ps[j]))}" fill="${pl[i] > 0 ? 'rgba(10,155,106,.13)' : 'rgba(217,58,58,.06)'}"/>`;
+      if (pl[i] > 0) zones += `<rect x="${X(ai)}" y="${Y(ps[j])}" width="${W - pad.r - X(ai)}" height="${Math.max(0, Y(ps[i]) - Y(ps[j]))}" fill="rgba(10,155,106,.10)"/>`;
       if (j < N) { const be = ps[j - 1] + (ps[j] - ps[j - 1]) * (-pl[j - 1]) / ((pl[j] - pl[j - 1]) || 1);
-        bes += `<line x1="${X(ai)}" x2="${W - pad.r}" y1="${Y(be)}" y2="${Y(be)}" stroke="#0f766e" stroke-dasharray="3 3"/><text x="${W - pad.r - 6}" y="${Y(be) - 4}" text-anchor="end" style="fill:#0f766e;font-weight:600">Breakeven ${num(be, 0)}</text>`; }
+        bes += `<line x1="${X(ai)}" x2="${W - pad.r}" y1="${Y(be)}" y2="${Y(be)}" stroke="#0f766e" stroke-width="1.2" opacity=".8"/>`; lab(be, 'B/E ' + num(be, 0), '#0f766e'); }
     }
-    for (const v of stops.filter(v => v > lo && v < hi)) marks += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#d93a3a" stroke-dasharray="6 4"/><text x="${pad.l + 6}" y="${Y(v) - 4}" style="fill:#d93a3a;font-weight:600">Kronos stop ${num(v, 0)}</text>`;
+    for (const v of stops.filter(v => v > lo && v < hi)) { marks += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#d93a3a" stroke-width="1.2" stroke-dasharray="6 4"/>`; lab(v, 'Stop ' + num(v, 0), '#d93a3a'); }
     if (o.entry?.date && ok(o.entry.spot)) {
       const hi_ = h.findIndex(r => r.date === o.entry.date), ri = rows.findIndex(r => r.date === o.entry.date);
       const ex = hi_ >= 0 ? X(hi_) : ri >= 0 ? fx(ri) : o.entry.date < h[0].date ? pad.l : null;
-      if (ex != null) marks += `<circle cx="${ex}" cy="${Y(o.entry.spot)}" r="5" fill="#0f172a" stroke="#fff" stroke-width="2"/><text x="${ex + 8}" y="${Y(o.entry.spot) + 16}" style="fill:#0f172a;font-weight:700">Entry ${num(o.entry.spot, 0)} · ${shortDate(o.entry.date)}</text>`;
+      marks = `<line x1="${ex ?? pad.l}" x2="${W - pad.r}" y1="${Y(o.entry.spot)}" y2="${Y(o.entry.spot)}" stroke="#64748b" stroke-width="1" stroke-dasharray="1 4" opacity=".7"/>` + marks;
+      if (ex != null) marks += `<circle cx="${ex}" cy="${Y(o.entry.spot)}" r="4.5" fill="#0f172a" stroke="#fff" stroke-width="2"><title>Entry ${num(o.entry.spot)} on ${shortDate(o.entry.date)}</title></circle>`;
+      lab(o.entry.spot, 'Entry ' + num(o.entry.spot, 0), '#475569');
     }
   }
+  for (const [k, v] of [['Low', a.lower], ['High', a.upper]]) lab(v, `${k} ${num(v, 0)}`, '#7c76f5', false);
+  lab(rows.at(-1).median, 'Median ' + num(rows.at(-1).median, 0), '#635bff');
+  if (spot) lab(spot, 'Now ' + num(spot, 0), '#a16d00');
+  const gap = 15; gut.sort((a, b) => a.y - b.y);
+  let last = pad.t + 6; for (const g of gut) { g.ly = Math.max(g.y, last); last = g.ly + gap; }
+  let room = H - pad.b - 2; for (let i = gut.length - 1; i >= 0; i--) { gut[i].ly = Math.min(gut[i].ly, room); room = gut[i].ly - gap; }
+  const gutter = gut.map(g => `<line x1="${W - pad.r}" x2="${W - pad.r + 5}" y1="${g.y}" y2="${g.ly}" stroke="${g.color}" opacity=".6"/><text class="h" x="${W - pad.r + 8}" y="${g.ly + 4}" style="fill:${g.color};font-weight:${g.bold ? 700 : 500}">${esc(g.text)}</text>`).join('');
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
     ${yt.map(v => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#eef1f5"/><text x="${pad.l - 6}" y="${Y(v) + 3}" text-anchor="end">${num(v, 0)}</text>`).join('')}
     ${dates.map((d, i) => (i < h.length ? i % step : 0) ? '' : `<text x="${X(i)}" y="${H - 8}" text-anchor="middle">${shortDate(d)}</text>`).join('')}
     <rect x="${X(ai)}" y="${pad.t}" width="${W - pad.r - X(ai)}" height="${H - pad.t - pad.b}" fill="#f7f6ff"/>
     ${zones}${bes}
-    ${[['lower', a.lower], ['upper', a.upper]].filter(x => ok(x[1])).map(([k, v]) => `<line x1="${X(ai)}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#a5a1ff" stroke-dasharray="4 4"/><text x="${W - pad.r + 4}" y="${Y(v) + 3}" style="fill:#635bff">${k === 'lower' ? 'Low' : 'High'} ${num(v, 0)}</text>`).join('')}
+    ${[a.lower, a.upper].filter(ok).map(v => `<line x1="${X(ai)}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#c4c1ff" stroke-dasharray="4 4"/>`).join('')}
     <polygon points="${band}" fill="rgba(99,91,255,.16)"/>
     <polyline points="${h.map((r, i) => `${X(i).toFixed(1)},${Y(r.close).toFixed(1)}`).join(' ')}" fill="none" stroke="#0f172a" stroke-width="1.8"/>
     <polyline points="${X(ai)},${Y(anchor.close)} ${pts(rows, 'median')}" fill="none" stroke="#635bff" stroke-width="2.4" stroke-dasharray="6 4"/>
@@ -667,9 +682,9 @@ function drawForecast(el, a, spot, o = null) {
     ${spot && anchor.date < today ? `<polyline points="${X(ai)},${Y(anchor.close)} ${nowX},${Y(spot)}" fill="none" stroke="#e0a100" stroke-width="2"/>` : ''}
     ${marks}
     <line x1="${X(ai)}" x2="${X(ai)}" y1="${pad.t}" y2="${H - pad.b}" stroke="#94a3b8" stroke-dasharray="2 3"/>
-    <text x="${X(ai) - 4}" y="${pad.t + 10}" text-anchor="end">Forecast from ${shortDate(anchor.date)} ▸</text>
-    <text x="${W - pad.r + 4}" y="${Y(rows.at(-1).median) + 3}" style="fill:#635bff;font-weight:700">${num(rows.at(-1).median, 0)}</text>
-    ${spot ? `<circle cx="${nowX}" cy="${Y(spot)}" r="5.5" fill="#e0a100" stroke="#fff" stroke-width="2"/><text x="${nowX + 8}" y="${Y(spot) - 8}" style="fill:#a16d00;font-weight:700">Now ${num(spot)}</text>` : ''}
+    <text class="h" x="${X(ai) - 4}" y="${pad.t + 10}" text-anchor="end">Forecast from ${shortDate(anchor.date)} ▸</text>
+    ${gutter}
+    ${spot ? `<circle cx="${nowX}" cy="${Y(spot)}" r="5" fill="#e0a100" stroke="#fff" stroke-width="2"/>` : ''}
     <g class="hover"></g><rect class="hit" x="${pad.l}" y="0" width="${W - pad.l - pad.r}" height="${H}" fill="transparent"/>
   </svg><div class="tip" hidden></div>`;
   const hit = el.querySelector('.hit'), g = el.querySelector('.hover'), tip = el.querySelector('.tip');

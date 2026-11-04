@@ -61,6 +61,10 @@ def create_server(service,port=8765):
                     self.send(200,{'app':'kronos-research','version':'2.3.0'}); return
                 if route.path=='/api/bootstrap':
                     self.send(200,{**service.bootstrap(),'token':token}); return
+                if route.path=='/api/shortlist':
+                    from .shortlist import Shortlist, review_setups
+                    self.send(200,{'setups':review_setups(service.setups()),
+                                   'entries':Shortlist(service.store).entries(),'token':token}); return
                 if route.path=='/api/context':
                     self.send(200,service.market.context(query.get('symbol',[''])[0],query.get('timeframe',['D'])[0],query.get('asof',[None])[0], service.prices if query.get('fresh')==['1'] else None)); return
                 if route.path=='/api/market/status':
@@ -169,6 +173,9 @@ def create_server(service,port=8765):
                     settings=Settings.from_dict(request)
                     service.store.save_settings(settings)
                     self.send(200,settings.to_dict())
+                elif self.path=='/api/shortlist':
+                    from .shortlist import Shortlist
+                    self.send(200,Shortlist(service.store).save(request))
                 elif self.path=='/api/market/refresh':
                     self.send(202,service.refresh.start())
                 elif self.path=='/api/jobs':
