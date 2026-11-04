@@ -361,9 +361,27 @@ class OptionsDesk:
             with self.service.lock:
                 self.service.active=None;self.service.events.pop(key,None)
 
+    def _closing_bars(self,symbol):
+        """15:30-16:00 on a trading day: the provider's daily candle is not settled yet, so build today's
+        candle from the closing quote. Otherwise a forecast run right after the close would start from yesterday."""
+        now=clock()
+        if now.weekday()>=5 or not 930<=now.hour*60+now.minute<960 or not hasattr(self.market,'depth'):
+            return None
+        try:
+            quote=self.market.depth(f'NSE:{symbol}-EQ',require_fresh=False)
+            stamp=number(quote.get('quote_time'))
+            if not stamp or datetime.fromtimestamp(stamp,now.tzinfo).date()!=now.date():
+                return None      # no trade today (holiday): the settled history is already current
+            return self.market.history(symbol,quote)
+        except (ValueError,KeyError,TypeError,AttributeError):
+            return None
+
     def analyse(self,symbol,prefs,cancel=None,progress=None):
         eod=not market_open()
-        if eod:
+        bars=self._closing_bars(symbol) if eod else None
+        if bars is not None:
+            spot=dict(ltp=float(bars.close.iloc[-1]),quote_time=None)
+        elif eod:
             bars=getattr(self.service,'prices',self.market).eod_history(symbol)
             spot=dict(ltp=float(bars.close.iloc[-1]),quote_time=None)
         else:

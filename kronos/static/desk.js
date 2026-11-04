@@ -14,7 +14,8 @@ const paused = () => document.hidden || !!window.frameElement?.hidden;
 
 const S = {token: '', universe: [], ideas: [], ai: {}, paper: [], symbol: '', expiry: '', chain: null,
   legs: [], span: Number(store('desk-span')) || 12, target: 0, view: 'chain', built: '', quotes: {},
-  aiData: {}, job: null, pendingIdea: null, posOpen: null, posChains: {}, posExpiry: {}, ctx: {}, monitor: null};
+  aiData: {}, job: null, pendingIdea: null, posOpen: null, posChains: {}, posExpiry: {}, ctx: {}, monitor: null,
+  autoRan: {}, noNewer: {}};
 
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {cache: 'no-store'} : {method: 'POST', cache: 'no-store',
@@ -147,7 +148,7 @@ function onChain(c) {
   syncLegs();
   if (S.pendingIdea && c.expiry_date === S.pendingIdea.expiry) { const idea = S.pendingIdea; S.pendingIdea = null; loadIdea(idea); }
   updateLegPrices(); renderSummary();
-  if (S.view === 'ai' && !prev) renderAIPane();
+  if (S.view === 'ai') { if (!prev) renderAIPane(); else updateAILive(); }
 }
 function windowRows(c) {
   const i = c.rows.findIndex(r => r.strike === c.atm), n = S.span;
@@ -298,6 +299,7 @@ function aiBand(symbol) {
 function renderSummary() {
   const box = $('summary'), trade = $('trade');
   const empty = !S.legs.length || !S.chain;
+  if (S.view === 'ai') updateAILive();          // the forecast chart shows the builder strategy's profit zone
   for (const el of [document.querySelector('.chart-head'), $('payoff'), $('payoff-grip')]) el.hidden = empty;
   renderContext();
   if (empty) { box.innerHTML = ''; $('payoff').innerHTML = ''; trade.disabled = true; trade.textContent = 'Paper trade'; $('trade-note').textContent = 'Market-order fill: buy at ask, sell at bid (deeper levels if needed), plus brokerage and charges. No broker order is placed.'; return; }
@@ -389,6 +391,9 @@ async function fetchAI(symbol = S.symbol) {
     S.aiData[symbol] = r; S.job = r.job; S.aiError = '';
     if (myJob && (!r.job || r.job.id !== myJob)) {          // our run finished: say how it went
       const run = await api('/api/runs/' + myJob).catch(() => null); myJob = null;
+      // A fresh run that still ends on the same candle means there is no newer session (e.g. a holiday): stop calling it old.
+      const anchor = forecastAnchor(r.analysis);
+      if (anchor && anchor === S.autoRan[symbol]) S.noNewer[symbol] = anchor;
       const stock = run?.result?.stocks?.[0];
       if (run?.status === 'failed' || run?.error) toast('Kronos could not finish: ' + (run.error || run.message), true);
       else if (run?.status === 'cancelled') toast('Kronos run stopped.');
@@ -404,6 +409,58 @@ const STATUS = {'Paper candidate': ['Ready', 'good'], 'Research only': ['Researc
 function aiAge(a) {
   const when = new Date(a.forecast_created || a.created), mins = (Date.now() - when) / 6e4;
   return mins < 60 ? Math.round(mins) + ' min ago' : mins < 1440 ? Math.round(mins / 60) + ' h ago' : when.toLocaleDateString('en-IN', {day: 'numeric', month: 'short'});
+}
+// ---- forecast freshness ----
+const forecastAnchor = a => a?.forecast?.history?.at(-1)?.date || a?.data_asof || null;
+function sessionDate() {
+  // Date of the latest trading session in IST: today after 09:15 on a weekday, else the previous weekday. Holidays are not known.
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'})
+    .formatToParts(new Date()).map(x => [x.type, x.value]));
+  const d = new Date(Date.UTC(+p.year, +p.month - 1, +p.day));
+  if (+p.hour * 60 + +p.minute < 555) d.setUTCDate(d.getUTCDate() - 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+function isStale(symbol, a) {
+  const anchor = forecastAnchor(a);
+  return !!anchor && anchor < sessionDate() && S.noNewer[symbol] !== anchor;
+}
+// Trading sessions between two ISO dates (weekdays only), e.g. 2 Nov → 4 Nov = 2.
+function sessionsBetween(from, to) {
+  let n = 0; const d = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
+  while (d < end) { d.setUTCDate(d.getUTCDate() + 1); if (d.getUTCDay() % 6) n++; }
+  return n;
+}
+// The forecast gives 10/50/90% closes per day. Treat them as a skewed normal: price ↔ z-score, piecewise linear.
+const Z90 = 1.2816;
+function priceAtZ(r, z) { return z <= 0 ? r.median + z * (r.median - r.q10) / Z90 : r.median + z * (r.q90 - r.median) / Z90; }
+function chanceBelow(r, price) {
+  const z = price <= r.median ? (price - r.median) / Math.max(1e-9, r.median - r.q10) * Z90 : (price - r.median) / Math.max(1e-9, r.q90 - r.median) * Z90;
+  return cdf(z) * 100;
+}
+function rowFor(rows, date) {           // forecast row for a date: exact, else the last one before it, else the first
+  let best = null; for (const r of rows) if (r.date <= date) best = r;
+  return best || rows[0];
+}
+// Strategy to overlay on the forecast: the builder legs, else an open paper position on this stock.
+function aiOverlay() {
+  const c = S.chain?.symbol === S.symbol ? S.chain : null;
+  if (S.legs.length && c) {
+    return {kind: 'builder', name: strategyName, legs: builderLegs(), off: 0, daysAt: d => Math.max(0, c.days - daysUntil(d))};
+  }
+  const t = openTrades().find(x => x.payload.symbol === S.symbol); if (!t) return null;
+  const p = t.payload, sameExp = c && c.expiry_date === p.plan.expiry;
+  const ivOf = sym => (sameExp ? c.rows.flatMap(r => [r.CE, r.PE]).find(o => o?.symbol === sym)?.iv : null) || c?.atm_iv || 25;
+  return {kind: 'position', name: p.plan.name, off: -entryCosts(p), stop: p.plan.underlying_stop,
+    entry: {date: String(p.entry_time || t.created || '').slice(0, 10), spot: p.entry_spot},
+    legs: p.legs.map(l => ({type: l.type, strike: l.strike, qty: l.qty, lot: l.lot, entry: l.entry_fill, iv: ivOf(l.symbol)})),
+    daysAt: d => Math.max(0, daysUntil(p.plan.expiry) - daysUntil(d))};
+}
+// Odds the strategy is in profit on a forecast day, plus its P&L at the bad / typical / good closes.
+function overlayOdds(o, r) {
+  const days = o.daysAt(r.date); let win = 0;
+  for (let i = 0; i < 280; i++) { const z = -3.5 + (i + .5) * .025; if (pnlModel(o.legs, priceAtZ(r, z), days, 0, o.off) > 0) win += cdf(z + .0125) - cdf(z - .0125); }
+  return {win: win * 100, bad: pnlModel(o.legs, r.q10, days, 0, o.off), mid: pnlModel(o.legs, r.median, days, 0, o.off), good: pnlModel(o.legs, r.q90, days, 0, o.off)};
 }
 function jobInfo() {
   // Job messages look like "AUROPHARMA · 1/1 · 24/32 forecast paths".
@@ -436,7 +493,8 @@ function renderAI() {
   if (S.aiError) box.innerHTML = `<div class="ai-top"><b>Kronos ideas</b><span class="down">${esc(S.aiError)}</span></div>`;
   else if (!d) box.innerHTML = '<div class="ai-top"><b>Kronos ideas</b><span>Loading…</span></div>';
   else if (!a) box.innerHTML = `<div class="ai-top"><b>Kronos ideas</b><span>No forecast yet for ${esc(S.symbol)}.</span>${open}</div>${jobBox(true)}`;
-  else box.innerHTML = `<div class="ai-top"><b>Kronos ideas</b><span>${esc(a.forecast.summary?.bias || '')} · ${a.data_mode === 'EOD' ? 'EOD close ' + shortDate(a.data_asof) : 'Live'} · ${aiAge(a)}</span>${open}</div>${jobBox(true)}
+  else box.innerHTML = `<div class="ai-top"><b>Kronos ideas</b><span>${esc(a.forecast.summary?.bias || '')} · ${a.data_mode === 'EOD' ? 'EOD close ' + shortDate(a.data_asof) : 'Live'} · ${aiAge(a)}</span>${open}</div>
+    ${isStale(S.symbol, a) && !jobInfo()?.mine ? `<div class="ai-old">Built on the ${esc(shortDate(forecastAnchor(a)))} close, ${sessionsBetween(forecastAnchor(a), sessionDate())} session(s) old. Strikes may no longer fit. <button data-ai="refresh">Update to today</button></div>` : ''}${jobBox(true)}
     ${a.ideas.length ? a.ideas.map((c, i) => { const [label, cls] = STATUS[c.status] || ['—', '']; return `<div class="idea">
       <div><b>${esc(c.name)}</b> <span class="st ${cls}" title="${esc(c.reasons.join(' · ') || 'Passes all checks')}">${label}</span>
       <small>${c.legs.map(l => `${l.qty > 0 ? 'B' : 'S'}${Math.abs(l.qty) > 1 ? Math.abs(l.qty) : ''} ${num(l.strike, l.strike % 1 ? 1 : 0)}${l.type}`).join(' · ')} · ${esc(shortDate(c.expiry))}</small>
@@ -455,6 +513,7 @@ document.addEventListener('click', e => {
 });
 async function runKronos(button) {
   if (button) button.disabled = true;
+  S.autoRan[S.symbol] = forecastAnchor(S.aiData[S.symbol]?.analysis) || '-';
   try {
     const job = await api('/api/options/scan', {symbol: S.symbol});
     myJob = job.id; S.job = {...job, symbol: S.symbol, progress: 0, message: S.symbol + ' · 1/1'}; renderAI();
@@ -493,17 +552,21 @@ function renderAIPane() {
   if (!a) { head.innerHTML = S.aiError ? `<div class="ai-empty"><b>Could not load Kronos data</b><p class="down">${esc(S.aiError)}</p></div>` : S.job ? jobBox() : `<div class="ai-empty"><b>No Kronos forecast for ${esc(S.symbol)} yet.</b><p>Kronos samples 32 possible price paths for the next 5 trading days, then the desk builds the best hedged option strategies for that view. It takes about 30 seconds; you can keep using the chain meanwhile.</p><button class="primary" data-ai="refresh">Run Kronos forecast</button></div>`; $('ai-chart').innerHTML = ''; $('ai-detail').innerHTML = ''; return; }
   const f = a.forecast, s = f.summary || {}, spot = S.chain?.symbol === S.symbol ? S.chain.spot.ltp : null, end = f.rows.at(-1);
   const since = spot && f.last_close ? (spot / f.last_close - 1) * 100 : null;
-  head.innerHTML = `<div class="ai-stats">${cell('Kronos view', esc(s.bias || '—'), s.bias?.startsWith('Up') ? 'up' : s.bias?.startsWith('Down') ? 'down' : '')}
+  const stale = isStale(S.symbol, a), mine = jobInfo()?.mine, overlay = aiOverlay();
+  // Old forecast and nothing running: fetch today's automatically, once per stock per page load.
+  if (stale && !S.job && !S.autoRan[S.symbol] && S.token) { runKronos(null); }
+  head.innerHTML = `${stale ? staleBanner(a, spot, mine) : ''}<div class="ai-stats">${cell('Kronos view', esc(s.bias || '—'), s.bias?.startsWith('Up') ? 'up' : s.bias?.startsWith('Down') ? 'down' : '')}
     ${cell('Median by ' + shortDate(end.date), `${num(s.median_end ?? end.median)} <small class="${tone(s.median_return_pct)}">${pct(s.median_return_pct)}</small>`)}
     ${cell('10–90% close', `${num(s.end_q10 ?? end.q10, 1)} – ${num(s.end_q90 ?? end.q90, 1)}`)}
     ${cell('Path low / high zone', `${num(a.lower, 1)} – ${num(a.upper, 1)}`)}
     ${cell('Upside paths', ok(s.upside_rate) ? num(s.upside_rate, 0) + '%' : '—')}
-    ${cell('Price now vs forecast base', spot ? `${num(spot)} <small class="${tone(since)}">${pct(since)}</small>` : '—')}</div>
+    <div><small>Price now vs forecast base</small><strong id="ai-now">${nowText(spot, since)}</strong></div></div>
     <div class="ai-bar"><span>Based on ${a.data_mode === 'EOD' ? 'end-of-day close of <b>' + shortDate(a.data_asof) + '</b>' : 'live prices'} (₹${num(f.last_close)}) · saved ${esc(aiAge(a))} · ${esc(String(s.sample_count || ''))} sampled paths</span>
-    ${S.job ? '' : '<button class="primary" data-ai="refresh">Refresh forecast</button>'}</div>${jobBox()}`;
-  drawForecast($('ai-chart'), a, spot);
+    ${S.job ? '' : '<button class="primary" data-ai="refresh">Refresh forecast</button>'}</div>${jobBox()}
+    <div id="ai-guide">${stale ? '' : guideHtml(a, spot, overlay)}</div>`;
+  drawForecast($('ai-chart'), a, spot, overlay);
   $('ai-detail').innerHTML = a.ideas.length ? `<table class="ptable"><thead><tr><th>Kronos strategy</th><th>Legs · ${esc(shortDate(a.ideas[0].expiry))} expiry</th><th class="n">Credit / debit</th><th class="n">Max profit</th><th class="n">Max loss</th><th class="n">Profitable paths</th><th class="n">IV-stressed avg</th><th>Stop (stock)</th><th>Checks</th><th></th></tr></thead><tbody>${a.ideas.map((c, i) => { const [label, cls] = STATUS[c.status] || ['—', '']; const st = c.underlying_stop; return `<tr>
-      <td><b>${esc(c.name)}</b><br><small>${esc(c.bias || '')}</small></td><td class="legtxt">${c.legs.map(l => `${l.qty > 0 ? 'Buy' : 'Sell'} ${Math.abs(l.qty)} ${num(l.strike, l.strike % 1 ? 1 : 0)} ${l.type} @${num(l.ltp)}`).join('<br>')}</td>
+      <td><b>${esc(c.name)}</b><br><small>${esc(c.bias || '')}</small></td><td class="legtxt">${c.legs.map(l => `${l.qty > 0 ? 'Buy' : 'Sell'} ${Math.abs(l.qty)} ${num(l.strike, l.strike % 1 ? 1 : 0)} ${l.type} @<span data-live="${l.type}|${l.strike}" data-exp="${esc(c.expiry)}">${num(l.ltp)}</span>`).join('<br>')}</td>
       <td class="n">${c.entry_credit >= 0 ? 'Cr' : 'Dr'} ${inr(Math.abs(c.entry_credit))}</td><td class="n up">${c.max_profit == null ? 'Uncapped' : inr(c.max_profit)}</td><td class="n down">${inr(c.max_loss)}</td>
       <td class="n">${num(c.scenario_profit_pct, 0)}%</td><td class="n ${tone(c.stressed_mean_net)}">${sinr(c.stressed_mean_net)}</td>
       <td>${st ? [st.lower != null ? '≤ ' + num(st.lower) : '', st.upper != null ? '≥ ' + num(st.upper) : ''].filter(Boolean).join(' / ') : '—'}</td>
@@ -511,12 +574,62 @@ function renderAIPane() {
       <td><button class="primary small" data-ai="load" data-i="${i}">Load in builder</button></td></tr>`; }).join('')}</tbody></table>
     <p class="note">Prices shown are from when Kronos ran; "Load in builder" re-prices every leg live. Profitable paths are model scenarios, not a measured win rate.</p>` : `<p class="empty">${esc(a.reason || 'No liquid hedged structure found.')}</p>`;
 }
-function drawForecast(el, a, spot) {
+const pctile = x => Math.round(Math.min(99, Math.max(1, x)));
+function staleBanner(a, spot, mine) {
+  const f = a.forecast, anchor = forecastAnchor(a), n = sessionsBetween(anchor, sessionDate());
+  let where = '';
+  if (spot) {
+    const p = chanceBelow(rowFor(f.rows, todayIST()), spot), move = (spot / f.last_close - 1) * 100;
+    const verdict = p > 90 ? 'the move ran ahead of the forecast' : p < 10 ? 'the forecast view has failed' : 'still inside the forecast range';
+    where = ` Since then ${esc(S.symbol)} is <b class="${tone(move)}">${pct(move)}</b> at ₹${num(spot)}, ${p >= 50 ? 'above' : 'below'} ${pctile(p >= 50 ? p : 100 - p)}% of its Kronos paths: ${verdict}.`;
+  }
+  return `<div class="ai-stale"><div><b>Old forecast.</b> Built on the ${esc(shortDate(anchor))} close (₹${num(f.last_close)}), ${n} session${n === 1 ? '' : 's'} ago.${where}
+    ${mine ? ' <b>Running today\'s forecast…</b>' : ''}</div>${mine || S.job ? '' : '<button data-ai="refresh">Update to today</button>'}</div>`;
+}
+function guideHtml(a, spot, o) {
+  const f = a.forecast, s = f.summary || {}, end = f.rows.at(-1), by = shortDate(end.date);
+  const up = s.bias?.startsWith('Up') || (!s.bias && s.median_return_pct > 0), down = s.bias?.startsWith('Down');
+  const items = [];
+  if (spot) {
+    const p = chanceBelow(rowFor(f.rows, todayIST()), spot);
+    const read = p > 85 ? 'running ahead of the forecast, so chasing it now pays less' : p < 15 ? 'lagging the forecast, so the view is under pressure' : 'on track with the forecast';
+    items.push(['Today', `₹${num(spot)} sits higher than ${pctile(p)}% of Kronos paths: ${read}.`]);
+  }
+  if (up || down) {
+    const room = spot ? (end.median / spot - 1) * 100 : null, passed = spot && (up ? spot >= end.median : spot <= end.median);
+    const fail = up ? end.q10 : end.q90, broken = spot && (up ? spot < fail : spot > fail);
+    items.push([up ? 'Bullish trade' : 'Bearish trade', broken ? `Price is already ${up ? 'below' : 'above'} ₹${num(fail, 0)}, where this view fails. Skip new ${up ? 'bullish' : 'bearish'} trades until a fresh forecast agrees.` : passed ? `Price is already past the ₹${num(end.median, 0)} median target for ${by}; wait for a ${up ? 'dip' : 'bounce'} before entering.`
+      : `Target ₹${num(end.median, 0)} by ${by}${room == null ? '' : ` (${pct(room)} from here)`}. The view is wrong on a close ${up ? 'below' : 'above'} ₹${num(up ? end.q10 : end.q90, 0)}.`]);
+  } else items.push(['Range view', `Most paths end between ₹${num(end.q10, 0)} and ₹${num(end.q90, 0)} by ${by}: suits iron condors and strangles sold outside that band.`]);
+  if (ok(a.lower) && ok(a.upper)) items.push(['Option sellers', `Short puts below ₹${num(a.lower, 0)} and short calls above ₹${num(a.upper, 0)} stay outside the Kronos path zone through ${by}${up ? '; the put side fits this view best' : down ? '; the call side fits this view best' : ''}.`]);
+  if (o) {
+    const odds = overlayOdds(o, end), what = o.kind === 'builder' ? 'Your strategy' : 'Your open position';
+    items.push([what, `<b>${esc(o.name)}</b> on ${by}: <b class="${odds.win >= 50 ? 'up' : 'down'}">${num(odds.win, 0)}%</b> of paths in profit · bad case ${'<b class="' + tone(odds.bad) + '">' + sinr(odds.bad) + '</b>'} · typical <b class="${tone(odds.mid)}">${sinr(odds.mid)}</b> · good case <b class="${tone(odds.good)}">${sinr(odds.good)}</b>. Shaded green on the chart where it makes money.`]);
+  } else items.push(['Your strategy', 'Load a Kronos idea or build a strategy on the chain to see its profit zone and odds on this chart.']);
+  return `<div class="ai-guide">${items.map(([k, v]) => `<div><small>${k}</small><span>${v}</span></div>`).join('')}</div>`;
+}
+const nowText = (spot, since) =>spot ? `${num(spot)} <small class="${tone(since)}">${pct(since)}</small>` : '—';
+// Called on every live chain tick: moves the Now marker, the price-vs-base cell and the saved idea LTPs without rebuilding the pane.
+function updateAILive() {
+  const a = S.aiData[S.symbol]?.analysis; if (!a || !S.chain || S.chain.symbol !== S.symbol) return;
+  const spot = S.chain.spot.ltp, since = a.forecast.last_close ? (spot / a.forecast.last_close - 1) * 100 : null;
+  if ($('ai-now')) $('ai-now').innerHTML = nowText(spot, since);
+  const overlay = aiOverlay();
+  if ($('ai-guide') && !isStale(S.symbol, a)) $('ai-guide').innerHTML = guideHtml(a, spot, overlay);
+  const chart = $('ai-chart'); if (chart && !chart.matches(':hover')) drawForecast(chart, a, spot, overlay);
+  document.querySelectorAll('#ai-detail [data-live]').forEach(el => {
+    const [type, strike] = el.dataset.live.split('|'), o = S.chain.expiry_date === el.dataset.exp ? optionAt(type, Number(strike)) : null;
+    if (o?.ltp) el.textContent = num(o.ltp);
+  });
+}
+function drawForecast(el, a, spot, o = null) {
   const f = a.forecast, h = f.history.slice(-30), rows = f.rows, W = el.clientWidth || 700, H = el.clientHeight || 320, pad = {l: 56, r: 64, t: 14, b: 26};
   // Forecast days get 3x the width of history days so the fan is readable.
   const n = h.length + rows.length, unit = i => i < h.length ? i : h.length - 1 + (i - h.length + 1) * 3, span = unit(n - 1) || 1;
   const X = i => pad.l + unit(i) / span * (W - pad.l - pad.r);
-  const vals = [...h.map(r => r.close), ...rows.flatMap(r => [r.q10, r.q90]), a.lower, a.upper, spot].filter(ok);
+  const base = f.last_close || h.at(-1).close, near = v => ok(v) && Math.abs(v / base - 1) < .15;
+  const stops = o?.stop ? [o.stop.lower, o.stop.upper].filter(ok) : [];
+  const vals = [...h.map(r => r.close), ...rows.flatMap(r => [r.q10, r.q90]), a.lower, a.upper, spot, o?.entry?.spot, ...stops.filter(near)].filter(ok);
   let lo = Math.min(...vals), hi = Math.max(...vals); const p = (hi - lo) * .06; lo -= p; hi += p;
   const Y = v => pad.t + (hi - v) / (hi - lo) * (H - pad.t - pad.b), ai = h.length - 1, anchor = h.at(-1);
   const fx = i => X(ai + 1 + i), pts = (arr, key) => arr.map((r, i) => `${fx(i).toFixed(1)},${Y(r[key]).toFixed(1)}`).join(' ');
@@ -524,15 +637,35 @@ function drawForecast(el, a, spot) {
   const today = todayIST(), ti = rows.findIndex(r => r.date === today), nowX = ti >= 0 ? fx(ti) : h.at(-1).date === today ? X(ai) : fx(0);
   const dates = [...h.map(r => r.date), ...rows.map(r => r.date)], step = Math.ceil(h.length / 5);
   const yt = Array.from({length: 5}, (_, i) => lo + (hi - lo) * i / 4);
+  // Strategy overlay: price bands where it is in profit on the last forecast day, and its breakevens.
+  let zones = '', bes = '', marks = '';
+  if (o) {
+    const days = o.daysAt(rows.at(-1).date), N = 120, ps = Array.from({length: N + 1}, (_, i) => lo + (hi - lo) * i / N), pl = ps.map(v => pnlModel(o.legs, v, days, 0, o.off));
+    for (let i = 0, j; i < N; i = j) {
+      j = i + 1; while (j < N && (pl[j] > 0) === (pl[i] > 0)) j++;
+      zones += `<rect x="${X(ai)}" y="${Y(ps[j])}" width="${W - pad.r - X(ai)}" height="${Math.max(0, Y(ps[i]) - Y(ps[j]))}" fill="${pl[i] > 0 ? 'rgba(10,155,106,.13)' : 'rgba(217,58,58,.06)'}"/>`;
+      if (j < N) { const be = ps[j - 1] + (ps[j] - ps[j - 1]) * (-pl[j - 1]) / ((pl[j] - pl[j - 1]) || 1);
+        bes += `<line x1="${X(ai)}" x2="${W - pad.r}" y1="${Y(be)}" y2="${Y(be)}" stroke="#0f766e" stroke-dasharray="3 3"/><text x="${W - pad.r - 6}" y="${Y(be) - 4}" text-anchor="end" style="fill:#0f766e;font-weight:600">Breakeven ${num(be, 0)}</text>`; }
+    }
+    for (const v of stops.filter(v => v > lo && v < hi)) marks += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#d93a3a" stroke-dasharray="6 4"/><text x="${pad.l + 6}" y="${Y(v) - 4}" style="fill:#d93a3a;font-weight:600">Kronos stop ${num(v, 0)}</text>`;
+    if (o.entry?.date && ok(o.entry.spot)) {
+      const hi_ = h.findIndex(r => r.date === o.entry.date), ri = rows.findIndex(r => r.date === o.entry.date);
+      const ex = hi_ >= 0 ? X(hi_) : ri >= 0 ? fx(ri) : o.entry.date < h[0].date ? pad.l : null;
+      if (ex != null) marks += `<circle cx="${ex}" cy="${Y(o.entry.spot)}" r="5" fill="#0f172a" stroke="#fff" stroke-width="2"/><text x="${ex + 8}" y="${Y(o.entry.spot) + 16}" style="fill:#0f172a;font-weight:700">Entry ${num(o.entry.spot, 0)} · ${shortDate(o.entry.date)}</text>`;
+    }
+  }
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
     ${yt.map(v => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#eef1f5"/><text x="${pad.l - 6}" y="${Y(v) + 3}" text-anchor="end">${num(v, 0)}</text>`).join('')}
     ${dates.map((d, i) => (i < h.length ? i % step : 0) ? '' : `<text x="${X(i)}" y="${H - 8}" text-anchor="middle">${shortDate(d)}</text>`).join('')}
     <rect x="${X(ai)}" y="${pad.t}" width="${W - pad.r - X(ai)}" height="${H - pad.t - pad.b}" fill="#f7f6ff"/>
+    ${zones}${bes}
     ${[['lower', a.lower], ['upper', a.upper]].filter(x => ok(x[1])).map(([k, v]) => `<line x1="${X(ai)}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#a5a1ff" stroke-dasharray="4 4"/><text x="${W - pad.r + 4}" y="${Y(v) + 3}" style="fill:#635bff">${k === 'lower' ? 'Low' : 'High'} ${num(v, 0)}</text>`).join('')}
     <polygon points="${band}" fill="rgba(99,91,255,.16)"/>
     <polyline points="${h.map((r, i) => `${X(i).toFixed(1)},${Y(r.close).toFixed(1)}`).join(' ')}" fill="none" stroke="#0f172a" stroke-width="1.8"/>
     <polyline points="${X(ai)},${Y(anchor.close)} ${pts(rows, 'median')}" fill="none" stroke="#635bff" stroke-width="2.4" stroke-dasharray="6 4"/>
     ${rows.map((r, i) => `<circle cx="${fx(i)}" cy="${Y(r.median)}" r="2.6" fill="#635bff"/>`).join('')}
+    ${spot && anchor.date < today ? `<polyline points="${X(ai)},${Y(anchor.close)} ${nowX},${Y(spot)}" fill="none" stroke="#e0a100" stroke-width="2"/>` : ''}
+    ${marks}
     <line x1="${X(ai)}" x2="${X(ai)}" y1="${pad.t}" y2="${H - pad.b}" stroke="#94a3b8" stroke-dasharray="2 3"/>
     <text x="${X(ai) - 4}" y="${pad.t + 10}" text-anchor="end">Forecast from ${shortDate(anchor.date)} ▸</text>
     <text x="${W - pad.r + 4}" y="${Y(rows.at(-1).median) + 3}" style="fill:#635bff;font-weight:700">${num(rows.at(-1).median, 0)}</text>
@@ -546,7 +679,7 @@ function drawForecast(el, a, spot) {
     const x = X(i);
     const hist = h[i], fr = rows[i - ai - 1];
     g.innerHTML = `<line x1="${x}" x2="${x}" y1="${pad.t}" y2="${H - pad.b}" stroke="#64748b"/>`;
-    tip.innerHTML = hist ? `${shortDate(hist.date)} · close <b>${num(hist.close)}</b>` : fr ? `${shortDate(fr.date)} · median <b>${num(fr.median)}</b><br>10–90%: ${num(fr.q10)} – ${num(fr.q90)}` : '';
+    tip.innerHTML = hist ? `${shortDate(hist.date)} · close <b>${num(hist.close)}</b>` : fr ? `${shortDate(fr.date)} · median <b>${num(fr.median)}</b><br>10–90%: ${num(fr.q10)} – ${num(fr.q90)}${o ? (() => { const x = overlayOdds(o, fr); return `<br>${o.kind === 'builder' ? 'Strategy' : 'Position'}: ${num(x.win, 0)}% in profit · at median ${sinr(x.mid)}`; })() : ''}` : '';
     tip.hidden = !tip.innerHTML; tip.style.left = Math.min(W - 190, x + 10) + 'px'; tip.style.top = '8px';
   });
   hit.addEventListener('mouseleave', () => { g.innerHTML = ''; tip.hidden = true; });

@@ -203,6 +203,14 @@ button.link:disabled{color:var(--faint);cursor:default}
 .ai-bar button:disabled,.ai-empty button:disabled{opacity:.5;cursor:default}
 .ai-empty{padding:30px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px}
 .ai-empty p{color:var(--muted);margin:0}
+.ai-stale{display:flex;align-items:center;gap:12px;padding:9px 12px;border:1px solid #f3d38a;background:#fff8e6;border-radius:8px;font-size:13px;color:#5b4300}
+.ai-stale>div{flex:1}
+.ai-stale button,.ai-old button{padding:5px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:600;white-space:nowrap}
+.ai-old{display:flex;align-items:center;gap:8px;font-size:11px;color:#8a5a00;background:#fff8e6;border:1px solid #f3d38a;border-radius:6px;padding:5px 8px;margin:4px 0}
+.ai-old button{padding:3px 8px;font-size:11px;margin-left:auto}
+.ai-guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:10px}
+.ai-guide div{background:#fff;padding:7px 10px;font-size:12px;line-height:1.4}
+.ai-guide small{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}
 .ai-chart{height:330px;position:relative;flex:none}
 .ai-chart svg,.pos-chart svg{display:block;width:100%;height:100%}
 .ai-chart text,.pos-chart text{font-size:13px;fill:var(--muted)}
