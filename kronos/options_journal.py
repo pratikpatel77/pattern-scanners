@@ -11,7 +11,7 @@ def encode(value): return json.dumps(value,allow_nan=False)
 
 
 CANDIDATE_FIELDS=('id','name','bias','status','reasons','score','entry_credit','max_loss','max_profit',
-                  'stressed_mean_net','scenario_profit_pct','short_touch_pct','expiry')
+                  'stressed_mean_net','scenario_profit_pct','short_touch_pct','expiry','calculation_version')
 
 
 def summarise(value):
@@ -35,16 +35,22 @@ def paper_stats(trades):
         total+=x;peak=max(peak,total);drawdown=max(drawdown,peak-total)
         curve.append(dict(time=t['updated'],symbol=t['payload']['symbol'],strategy=t['payload']['plan']['name'],
                           pnl=round(x,2),cumulative=round(total,2)))
+    def risk_total(rows):
+        values=[t['payload']['plan'].get('max_loss') for t in rows]
+        return None if any(v is None for v in values) else sum(values)
     groups={}
     for t,x in zip(closed,pnl):
         for key in (t['payload']['plan']['name'],'Research trades' if t['payload'].get('research') else 'Standard trades'):
             g=groups.setdefault(key,dict(name=key,trades=0,wins=0,pnl=0.,risk=0.))
-            g['trades']+=1;g['wins']+=x>0;g['pnl']=round(g['pnl']+x,2);g['risk']+=t['payload']['plan']['max_loss']
+            g['trades']+=1;g['wins']+=x>0;g['pnl']=round(g['pnl']+x,2)
+            value=t['payload']['plan'].get('max_loss')
+            g['risk']=g['risk']+value if g['risk'] is not None and value is not None else None
     held=[(datetime.fromisoformat(t['updated'])-datetime.fromisoformat(t['created'])).total_seconds()/86400 for t in closed]
-    risk=sum(t['payload']['plan']['max_loss'] for t in closed)
+    risk=risk_total(closed)
+    open_risk=risk_total(opened)
     marked=[t for t in opened if t['payload'].get('mark')]
     return dict(
-        open=dict(count=len(opened),risk=round(sum(t['payload']['plan']['max_loss'] for t in opened),2),
+        open=dict(count=len(opened),risk=round(open_risk,2) if open_risk is not None else None,
                   unrealised=round(sum(t['payload']['mark']['net_pnl'] for t in marked),2),unmarked=len(opened)-len(marked),
                   alerts=sum(1 for t in opened if t['payload'].get('exit_signal') not in (None,'Monitor'))),
         closed=dict(count=len(closed),wins=len(wins),losses=len(losses),
@@ -57,7 +63,7 @@ def paper_stats(trades):
                     return_on_risk_pct=round(sum(pnl)/risk*100,1) if risk else None,
                     avg_days_held=round(sum(held)/len(held),1) if held else None),
         curve=curve,
-        groups=sorted(({**g,'win_rate':round(g['wins']/g['trades']*100,1),'risk':round(g['risk'],2)} for g in groups.values()),
+        groups=sorted(({**g,'win_rate':round(g['wins']/g['trades']*100,1),'risk':round(g['risk'],2) if g['risk'] is not None else None} for g in groups.values()),
                       key=lambda g:g['pnl'],reverse=True),
         note='Paper results from fresh bid/ask marks (buys at ask, sells at bid) and estimated charges. Small samples are not evidence of an edge.')
 

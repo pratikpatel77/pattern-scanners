@@ -47,7 +47,8 @@ def kronos_view(direction, analysis, price, today):
     except ValueError:
         age = None
     drift = (price / last - 1) * 100 if price and last else None
-    fresh = age is not None and age <= FORECAST_MAX_AGE and (drift is None or abs(drift) <= FORECAST_DRIFT_PCT)
+    end=(analysis or {}).get('forecast_end')
+    fresh = age is not None and 0 <= age <= FORECAST_MAX_AGE and (drift is None or abs(drift) <= FORECAST_DRIFT_PCT) and (not end or end>=str(today))
     return dict(bias=bias, align=align, expected_pct=round(expected, 2) if expected is not None else None,
                 asof=f.get('asof'), age_days=age, drift_pct=round(drift, 2) if drift is not None else None,
                 fresh=fresh, forecast_end=(analysis or {}).get('forecast_end'))
@@ -78,8 +79,10 @@ def judge(direction, state, past, kronos, event):
     elif not kronos['fresh']:
         if kronos['age_days'] is not None and kronos['age_days'] > FORECAST_MAX_AGE:
             reasons.append(f"Kronos forecast is {kronos['age_days']} days old: refresh it")
-        else:
+        elif kronos['drift_pct'] is not None and abs(kronos['drift_pct'])>FORECAST_DRIFT_PCT:
             reasons.append(f"Price moved {kronos['drift_pct']:+.1f}% since the forecast: refresh it")
+        else:
+            reasons.append('Forecast dates are missing, invalid or past the horizon: refresh it')
     if event:
         reasons.append(f"{event['title']} on {event['date']} falls inside the trade period")
     if ready and confirmed and not event:
@@ -126,7 +129,11 @@ def evaluate(rows, analyses, quotes, today):
         verdict, reasons = judge(direction, state, past, kronos, event)
         timeframe = 'D+W' if g['frames'] >= {'D', 'W'} else p['timeframe']
         if analysis and kronos and not checked and verdict == 'ripe':
-            reasons.append('Event calendar was not checked for this forecast: look for results dates yourself')
+            verdict='watch'
+            reasons.append('Event calendar was not checked: review it before entry')
+        if verdict=='ripe' and not quote.get('fresh'):
+            verdict='watch'
+            reasons.append('Fresh market quote unavailable: refresh before entry')
         row = dict(symbol=symbol, direction='bullish' if direction == 'long' else 'bearish', verdict=verdict,
                    reasons=reasons, state=state, past_pct=round(past, 2), price=price,
                    change_pct=quote.get('change_pct'), live=bool(quote.get('ltp')), fresh=bool(quote.get('fresh')),

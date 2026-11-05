@@ -280,7 +280,7 @@ class JournalTests(unittest.TestCase):
         fake=SimpleNamespace(depth=lambda s:{**next(l for l in legs if l['symbol']==s),'quote_time':datetime.now().timestamp()})
         desk=OptionsDesk(SimpleNamespace(store=self.store),fake)
         marked=desk.mark_paper(dict(id=t['id'],close=True))
-        expected=cash+fill(legs[1],-1)*100-fill(legs[0],1)*100-sum(cost.values())-fee(fill(legs[0],1)*100,fill(legs[1],-1)*100)
+        expected=cash+fill(legs[1],-1)*100-fill(legs[0],1)*100-sum(cost.values())-fee(fill(legs[0],1)*100,fill(legs[1],-1)*100,len(legs),prefs['brokerage'])
         self.assertAlmostEqual(marked['payload']['mark']['net_pnl'],expected,places=2)
         self.assertLess(expected,0)  # immediate round trip must lose to spread, slippage and charges
 
@@ -343,7 +343,7 @@ class JournalTests(unittest.TestCase):
     def test_eligible_paper_entry_uses_server_plan_and_refreshed_depth(self):
         f=forecast_value()
         for path in f['paths']:
-            path[-1]['close']=1100.
+            path[-1].update(close=1100.,high=1103.)
         prefs=preferences({})
         legs=[option(970,qty=-1,bid=8,ask=8.1),option(950,qty=1,bid=3,ask=3.1)]
         plan=analyse_structure('Put credit spread','bullish',legs,f,prefs,70)
@@ -401,7 +401,7 @@ class JournalTests(unittest.TestCase):
 
     def manual_desk(self):
         prefs=preferences({});f=forecast_value()
-        for p in f['paths']:p[-1]['close']=1100.
+        for p in f['paths']:p[-1].update(close=1100.,high=1103.)
         legs=[option(970,qty=-1,bid=8,ask=8.1),option(950,qty=1,bid=3,ask=3.1)]
         plan=analyse_structure('Put credit spread','bullish',legs,f,prefs,70);plan['id']='original'
         a=self.j.save_analysis(dict(symbol='TEST',prefs=prefs,spot=1000,forecast=f,forecast_id='f',

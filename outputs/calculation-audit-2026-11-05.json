@@ -1,0 +1,55 @@
+{
+  "symbols": 1159,
+  "scans": 13908,
+  "signals": 281,
+  "dates": {
+    "2026-09-21": 2,
+    "2026-09-24": 1,
+    "2026-09-28": 4,
+    "2026-10-28": 6,
+    "2026-10-30": 3,
+    "2026-11-02": 1,
+    "2026-11-04": 1142
+  },
+  "errors": [],
+  "model": {
+    "asof": "2026-11-04",
+    "summary": {
+      "bias": "Downside bias",
+      "median_end": 965.361083984375,
+      "median_return_pct": -1.3931477033324868,
+      "end_q10": 950.103955078125,
+      "end_q90": 981.8396362304687,
+      "upside_rate": 12.5,
+      "atr": 20.899999999999952,
+      "sample_count": 32
+    },
+    "metadata": {
+      "model": "NeoQuasar/Kronos-small",
+      "tokenizer": "NeoQuasar/Kronos-Tokenizer-base",
+      "model_revision": "901c26c1332695a2a8f243eb2f37243a37bea320",
+      "tokenizer_revision": "0e0117387f39004a9016484a186a908917e22426",
+      "device": "cpu",
+      "torch_version": "2.14.1+cpu",
+      "upstream_revision": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+      "data_hash": "5336250a46f267c0b2d7d0ec2a744d6e7c319515217f5bff4ee4e2188165e024",
+      "seed": 2534214715,
+      "lookback_used": 128,
+      "repaired_candles": 11,
+      "calendar": "Estimated weekdays / weekly Fridays",
+      "partial_week": false
+    },
+    "valid_bands": true,
+    "paths": 32,
+    "horizon": 5
+  },
+  "live": {
+    "symbol": "SBIN",
+    "source": "FYERS",
+    "price": 998.15,
+    "candle_date": "2026-11-04",
+    "quote_time": 1793861321.0,
+    "fresh": true,
+    "note": "Read-only retry outside the restricted network succeeded."
+  }
+}

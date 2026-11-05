@@ -59,6 +59,16 @@ class Signal:
 
 
 def arrays(bars: pd.DataFrame):
+    if not isinstance(bars.index, pd.DatetimeIndex) or bars.index.has_duplicates or not bars.index.is_monotonic_increasing:
+        raise ValueError('Scanner candles need unique, increasing dates.')
+    prices = bars[["open", "high", "low", "close"]].to_numpy(float)
+    volume = bars["volume"].to_numpy(float)
+    if not np.isfinite(prices).all() or (prices <= 0).any():
+        raise ValueError('Scanner prices must be finite and positive.')
+    if len(prices) and ((prices[:, 1] < prices.max(axis=1)).any() or (prices[:, 2] > prices.min(axis=1)).any()):
+        raise ValueError('Scanner OHLC bounds are inconsistent.')
+    if not np.isfinite(volume).all() or (volume < 0).any():
+        raise ValueError('Scanner volume must be finite and nonnegative.')
     return (
         bars["open"].to_numpy(float),
         bars["high"].to_numpy(float),

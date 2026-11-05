@@ -67,7 +67,7 @@ class VerdictTests(unittest.TestCase):
 
     def test_bearish_ripe(self):
         r = row(direction='short', pivot=100., stop=105.)
-        e = one([r], {'AAA': forecast('Downside bias', median=97.)}, {'AAA': dict(ltp=99.4)})
+        e = one([r], {'AAA': forecast('Downside bias', median=97.)}, {'AAA': dict(ltp=99.4,fresh=True)})
         self.assertEqual((e['verdict'], e['direction'], e['state']), ('ripe', 'bearish', 'triggered'))
 
     def test_kronos_against_is_skipped_with_the_reason(self):
@@ -111,7 +111,7 @@ class RankingTests(unittest.TestCase):
     def test_groups_sort_ripe_first_then_by_strength(self):
         rows = [row('LOW', score=50), row('HIGH', score=90), row('BADK', score=99), row('FAR', score=95, stop=85.)]
         analyses = {s: forecast() for s in ('LOW', 'HIGH', 'FAR')} | {'BADK': forecast('Downside bias')}
-        quotes = {s: dict(ltp=99.5) for s in ('LOW', 'HIGH', 'BADK')} | {'FAR': dict(ltp=90.)}
+        quotes = {s: dict(ltp=99.5,fresh=True) for s in ('LOW', 'HIGH', 'BADK')} | {'FAR': dict(ltp=90.)}
         out = evaluate(rows, analyses, quotes, TODAY)
         self.assertEqual([e['symbol'] for e in out], ['HIGH', 'LOW', 'FAR', 'BADK'])
         self.assertEqual([e['verdict'] for e in out], ['ripe', 'ripe', 'wait', 'skip'])
@@ -158,7 +158,7 @@ class TrackingTests(unittest.TestCase):
                                   compact=lambda a: dict(best=None))
         service = SimpleNamespace(store=SimpleNamespace(settings=lambda: SimpleNamespace(target_r=1., min_target_pct=5.)),
                                   setups=lambda: setups, options=options,
-                                  prices=SimpleNamespace(quotes=lambda symbols: dict(quotes={s: dict(ltp=self.price) for s in symbols})))
+                                  prices=SimpleNamespace(quotes=lambda symbols: dict(quotes={s: dict(ltp=self.price,fresh=True) for s in symbols})))
         desk = FastDesk(service)
         desk.BOARD_TTL = 0
         return desk

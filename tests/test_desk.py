@@ -158,7 +158,7 @@ class AITests(unittest.TestCase):
                             history=[dict(date=f'2026-10-{i:02d}', close=990. + i) for i in range(1, 31)],
                             forecast=[dict(date='2026-11-02', median=1005., q10=990., q90=1015.)], paths=[])
             legs = [dict(strike=980., type='PE', qty=-1, ltp=8.), dict(strike=960., type='PE', qty=1, ltp=4.)]
-            idea = dict(id='a', name='Put credit spread', bias='bullish', status='Paper candidate', score=5, expiry='2026-11-23',
+            idea = dict(id='a', calculation_version=2, name='Put credit spread', bias='bullish', status='Paper candidate', score=5, expiry='2026-11-23',
                         entry_credit=400., max_loss=1600., legs=legs, reasons=['Chain preview: refresh leg depth before entry'],
                         underlying_stop=dict(lower=985., upper=None))
             journal.save_analysis(dict(symbol='TEST', forecast=forecast, candidates=[idea], data_mode='EOD', lower=980., upper=1030.))
@@ -216,7 +216,7 @@ class PreflightTests(unittest.TestCase):
         expiry = str((now() + timedelta(days=20)).date())
         by_symbol = {f'NSE:TEST{k}CE': dict(symbol=f'NSE:TEST{k}CE', underlying='TEST', expiry=expiry, lot=100, strike=float(k), type='CE', tick=.05)
                      for k in (1005, 1010)}
-        journal = SimpleNamespace(latest_forecast_id=lambda s: 'a1' if analysis else None, analysis=lambda k: analysis)
+        journal = SimpleNamespace(latest_forecast_id=lambda s: 'a1' if analysis else None, analysis=lambda k: analysis, settings=lambda: {})
         options = SimpleNamespace(journal=journal, market=SimpleNamespace(universe=lambda: ['TEST'], by_symbol=by_symbol, contracts=[]),
                                   events=lambda s, e: dict(upcoming=[]))
         desk = FastDesk(SimpleNamespace(options=options))

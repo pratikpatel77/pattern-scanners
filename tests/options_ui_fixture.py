@@ -27,7 +27,7 @@ def main():
         f=forecast_value()
         f['asof']='2026-10-30'
         f['history']=[dict(date=f'2026-10-{day}',open=990,high=1005,low=985,close=990+day/3,volume=10000) for day in range(10,31)]
-        for p in f['paths']:p[-1]['close']=1100.
+        for p in f['paths']:p[-1].update(close=1100.,high=1103.)
         prefs=preferences({})
         legs=[option(970,qty=-1,bid=8,ask=8.1),option(950,qty=1,bid=3,ask=3.1)]
         chain=legs+[option(960,bid=4,ask=4.1)]

@@ -35,8 +35,12 @@ def to_weekly(daily: pd.DataFrame) -> pd.DataFrame:
     )
     if "deliv_qty" in daily.columns:
         # delivery is published per day; a week delivers the sum of its days
-        dq = np.add.reduceat(np.nan_to_num(daily["deliv_qty"].to_numpy(float)), starts)
-        known = np.add.reduceat(daily["deliv_qty"].notna().to_numpy(), starts) > 0
+        raw = daily["deliv_qty"].to_numpy(float)
+        valid = np.isfinite(raw) & (raw >= 0) & (raw <= v)
+        dq = np.add.reduceat(np.where(valid, raw, 0.), starts)
+        # A missing daily delivery figure is unknown, not zero. Only publish a
+        # weekly total/rate when every constituent day has valid delivery data.
+        known = np.logical_and.reduceat(valid, starts)
         out["deliv_qty"] = np.where(known, dq, np.nan)
         with np.errstate(invalid="ignore", divide="ignore"):
             out["deliv_pct"] = np.where(known & (weekly_vol > 0), 100 * dq / weekly_vol, np.nan)

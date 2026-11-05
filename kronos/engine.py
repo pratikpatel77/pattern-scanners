@@ -50,6 +50,11 @@ def forecast(symbol, bars, settings, signal=None, predictor=None, future_dates=N
     context, _ = _candles(bars.tail(settings.lookback))
     if len(context)<60:
         raise ValueError('At least 60 observed candles are needed.')
+    if signal is not None:
+        if signal.symbol!=symbol or signal.tf!=settings.timeframe or pd.Timestamp(signal.date).date()!=context.index[-1].date() or not np.isclose(signal.close,context.close.iloc[-1],rtol=1e-4,atol=.011):
+            raise ValueError('Pattern does not match the forecast symbol, date or closing price. Re-scan it.')
+        if getattr(signal,'bearish',False):
+            raise ValueError('Breakout evaluation currently supports bullish patterns only.')
     if 'volume' not in context:
         context['volume'] = 0.
     for name in ('volume','amount'):

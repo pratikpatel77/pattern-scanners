@@ -7,7 +7,7 @@ import time
 import uuid
 
 from .options_market import FYERS_COOLDOWN, IST, clock, market_open, number
-from .options_math import bs, book_fill, charges, intrinsic
+from .options_math import bs, book_fill, charges, intrinsic, payoff_limits
 
 CHAIN_URL = 'https://api-t1.fyers.in/data/options-chain-v3'
 QUOTES_URL = 'https://api-t1.fyers.in/data/quotes'
@@ -31,12 +31,12 @@ def years_left(expiry_ts, now=None):
 
 def implied_vol(price, spot, strike, days, kind):
     """Black-Scholes IV in %, by bisection. None when the price carries no time value."""
-    if price <= 0 or spot <= 0 or strike <= 0 or days <= 0:
+    if any(not math.isfinite(v) for v in (price,spot,strike,days)) or price <= 0 or spot <= 0 or strike <= 0 or days <= 0 or kind not in ('CE','PE'):
         return None
-    if price <= intrinsic(kind, strike, spot) + .01:
-        return None
+    # European puts can trade below immediate intrinsic due to discounting.
+    # Check the model's no-arbitrage lower bound, not immediate exercise value.
     lo, hi = .5, 400.
-    if bs(spot, strike, days, hi, kind) < price:
+    if not bs(spot,strike,days,lo,kind) < price < bs(spot,strike,days,hi,kind):
         return None
     for _ in range(45):
         mid = (lo + hi) / 2
@@ -70,21 +70,8 @@ def max_pain(rows):
 
 
 def payoff_summary(legs, spot, entry_credit, costs):
-    """Expiry P&L over a wide grid: max profit/loss, breakevens and whether either side is open-ended."""
-    strikes = sorted({l['strike'] for l in legs})
-    lo, hi = min(strikes + [spot]) * .5, max(strikes + [spot]) * 1.5
-    grid = sorted({round(lo + (hi - lo) * i / 400, 2) for i in range(401)} | set(strikes))
-    lot = legs[0]['lot']
-    net = [entry_credit - costs + sum(l['qty'] * intrinsic(l['type'], l['strike'], s) * lot for l in legs) for s in grid]
-    calls = sum(l['qty'] for l in legs if l['type'] == 'CE')
-    breakevens = []
-    for i in range(1, len(grid)):
-        a, b = net[i - 1], net[i]
-        if (a < 0 <= b) or (a >= 0 > b):
-            breakevens.append(round(grid[i - 1] + (grid[i] - grid[i - 1]) * (-a) / (b - a), 2) if b != a else grid[i])
-    return dict(max_profit=None if calls > 0 else round(max(net), 2),
-                max_loss=round(max(1., -min(net)), 2),
-                unlimited_loss=calls < 0, breakevens=breakevens)
+    """Exact expiry bounds including a stock price of zero and the call tail."""
+    return payoff_limits(legs,entry_credit,costs)
 
 
 class FastDesk:
@@ -134,7 +121,7 @@ class FastDesk:
             ai[a['symbol']] = dict(bias=f['bias'], lower=a.get('lower'), upper=a.get('upper'),
                                    median_end=f.get('median_end'), last_close=f.get('last_close'),
                                    created=a.get('created'), asof=f.get('asof'))
-        return dict(universe=universe, ideas=ideas, ai=ai, paper=options.journal.paper(),
+        return dict(universe=universe, ideas=ideas, ai=ai, paper=options.journal.paper(), settings=options.journal.settings(),
                     market_open=market_open(), time=clock().isoformat())
 
     def chain(self, symbol, expiry=None):
@@ -193,7 +180,11 @@ class FastDesk:
                          datetime.strptime(e['date'], '%d-%m-%Y').date().isoformat() == expiry_date), None)
         if selected is None and expiries:
             selected = expiries[0]
-        expiry_ts = int(selected['ts']) if selected else int((clock() + timedelta(days=7)).timestamp())
+        # Chain expiry identifiers may be midnight epochs, not settlement time.
+        expiry_day = expiry_date or (datetime.strptime(selected['date'],'%d-%m-%Y').date().isoformat() if selected else None)
+        if not expiry_day:
+            raise ValueError('Option expiry is unavailable; cannot calculate IV.')
+        expiry_ts = datetime.fromisoformat(expiry_day).replace(hour=15,minute=30,tzinfo=IST).timestamp()
         days = years_left(expiry_ts)
         by_strike = {}
         for r in options:
@@ -242,6 +233,8 @@ class FastDesk:
         from .options_math import underlying_stop
         ideas = []
         for c in options.top_ideas(a.get('candidates', [])):
+            if c.get('calculation_version')!=2:
+                c={**c,'status':'Skip','reasons':list(c.get('reasons',[]))+['Saved calculation is outdated. Analyse this stock again']}
             try:
                 stop = c.get('underlying_stop') or underlying_stop(c['bias'], c['legs'], f)
             except (KeyError, TypeError, ValueError):
@@ -260,7 +253,9 @@ class FastDesk:
             patterns=a.get('patterns', []), ideas=ideas,
             forecast=dict(asof=f.get('asof'), last_close=f.get('last_close'), summary=f.get('summary'),
                           history=[dict(date=r['date'], close=r['close']) for r in (f.get('history') or [])[-60:]],
-                          rows=[dict(date=r['date'], median=r['median'], q10=r['q10'], q90=r['q90']) for r in f.get('forecast', [])])))
+                          rows=[dict(date=r['date'], median=r['median'], q10=r['q10'], q90=r['q90'],
+                                     samples=[p[i]['close'] for p in f.get('paths',[]) if len(p)>i and p[i]['date']==r['date']])
+                                for i,r in enumerate(f.get('forecast', []))])))
 
     def context(self, symbol):
         """Next scheduled event and the Kronos stop levels for one stock (both sides; the page picks by strategy)."""
@@ -506,16 +501,22 @@ class FastDesk:
                         message='No saved Kronos forecast for this stock. Run one so this trade can be checked before you enter.')
         quotes = self.ltp([f'NSE:{symbol}-EQ'] + [c['symbol'] for c in contracts])['quotes']
         spot = number((quotes.get(f'NSE:{symbol}-EQ') or {}).get('ltp')) or number(analysis.get('spot'))
-        for c in contracts:   # market-order style: buys at the ask, sells at the bid, last price when a side is missing
+        for c in contracts:
             q = quotes.get(c['symbol']) or {}
             side = number(q.get('ask')) if c['qty'] > 0 else number(q.get('bid'))
-            c['entry_fill'] = side or number(q.get('ltp'))
+            c['entry_fill'] = side
+            c.update(bid=number(q.get('bid')),ask_price=number(q.get('ask')))
             if c['entry_fill'] <= 0:
-                raise ValueError(f"No live price for {c['symbol']}.")
+                raise ValueError(f"No entry-side quote for {c['symbol']}.")
         credit = sum(-c['qty'] * c['lot'] * c['entry_fill'] for c in contracts)
         summary = payoff_summary([dict(type=c['type'], strike=c['strike'], qty=c['qty'], lot=c['lot']) for c in contracts], spot, credit, 0.)
         exit_by = str(datetime.fromisoformat(expiry).date() - timedelta(days=1))
-        trade = dict(id='preflight', payload=dict(symbol=symbol, legs=contracts, entry_charges={}, exit_by=exit_by,
+        from .options import preferences
+        prefs = preferences(options.journal.settings())
+        buy = sum(c['entry_fill']*c['qty']*c['lot'] for c in contracts if c['qty']>0)
+        sell = sum(-c['entry_fill']*c['qty']*c['lot'] for c in contracts if c['qty']<0)
+        trade = dict(id='preflight', payload=dict(symbol=symbol, legs=contracts, prefs=prefs,
+                                                  entry_charges=charges(buy,sell,len(contracts),prefs['brokerage']), exit_by=exit_by,
                                                   plan=dict(expiry=expiry, exit_by=exit_by, max_profit=summary['max_profit'],
                                                             max_loss=summary['max_loss'])))
         try:
@@ -551,6 +552,10 @@ class FastDesk:
             legs.append({**contract, 'qty': lots})
         if len({l['expiry'] for l in legs}) > 1:
             raise ValueError('All legs must share one expiry.')
+        if len({l['symbol'] for l in legs}) != len(legs):
+            raise ValueError('Combine repeated contracts into one net leg.')
+        if clock().date() >= datetime.fromisoformat(legs[0]['expiry']).date():
+            raise ValueError('Choose an expiry after today; physical settlement is not modelled.')
         from .options import preferences
         prefs = preferences(options.journal.settings())
         with options.action_lock:

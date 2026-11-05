@@ -1,7 +1,7 @@
 """Price forecast metrics and conservative, next-open paper trade execution."""
 import math
 import numpy as np
-from .core import classify_path
+from .core import classify_path, _candles
 
 
 def compare(result, actual):
@@ -9,6 +9,9 @@ def compare(result, actual):
     if not count:
         return {'available':0,'required':len(result['forecast']),'complete':False,'rows':[],'metrics':{}}
     actual = actual.iloc[:count]
+    if actual.index.has_duplicates or not actual.index.is_monotonic_increasing:
+        raise ValueError('Actual candles must have unique, increasing dates.')
+    actual, _ = _candles(actual)
     expected = np.array([r['median'] for r in result['forecast'][:count]])
     observed = actual.close.to_numpy(float)
     low = np.array([r['q10'] for r in result['forecast'][:count]])

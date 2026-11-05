@@ -84,6 +84,8 @@ def _mean(a):
 
 def _sum(a):
     a = np.asarray(a, float)
+    if not a.size:
+        return 0.0
     a = a[np.isfinite(a)]
     return float(a.sum()) if a.size else np.nan
 
@@ -450,7 +452,7 @@ def _bullets(sig, m: dict) -> list:
               f"({sig.risk_pct:.1f}% below here) - that breaks the {name}.", FLAT))
     if m["has_delivery"] and m["deliv_ud_gap"] < -3:
         b.append(("Weak point: the selling side is the one taking delivery. Wait for that to flip before trusting a breakout.", BAD))
-    if np.isfinite(m["vol_recent_vs_pattern"]) and m["vol_recent_vs_pattern"] >= 1.4 and (m["close_strength"] or 1) < 0.4:
+    if np.isfinite(m["vol_recent_vs_pattern"]) and m["vol_recent_vs_pattern"] >= 1.4 and np.isfinite(m["close_strength"]) and m["close_strength"] < 0.4:
         b.append(("Weak point: volume is rising while closes stay soft - that combination often precedes a breakdown, not a breakout.", BAD))
     sections.append({"title": "What to watch", "bullets": b})
 
@@ -693,9 +695,10 @@ def _headline_bear(m: dict, selling: float, why: list) -> str:
     return f"{lead} - {top}."
 
 
-def tone_for(verdict: str) -> str:
+def tone_for(verdict: str, bearish: bool = False) -> str:
     """Badge colour: green when volume and delivery support the setup's own direction."""
-    if verdict in ("Strong accumulation", "Accumulation", "Strong distribution", "Distribution"):
+    supportive = ("Strong distribution", "Distribution") if bearish else ("Strong accumulation", "Accumulation")
+    if verdict in supportive:
         return GOOD
     return FLAT if verdict == "Mixed" else BAD
 
@@ -730,7 +733,7 @@ def analyse(sig, bars: pd.DataFrame) -> dict:
 
     return {
         "verdict": verdict,
-        "tone": tone_for(verdict),
+        "tone": tone_for(verdict, getattr(sig, "bearish", False)),
         "pressure": round(pressure),
         "headline": headline,
         "chips": chips,

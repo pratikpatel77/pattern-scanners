@@ -167,6 +167,8 @@ class OptionsDesk:
             a['events']=self.events(a['symbol'],a['forecast_end'])
             if a.get('iv'): a['ivp']=self.iv_percentile(a['symbol'],a['iv'])
         for c in a.get('candidates',[]):
+            if c.get('calculation_version') != 2:
+                c.setdefault('reasons',[]).append('Saved calculation is outdated. Analyse this stock again')
             if a.get('forecast'):
                 c.setdefault('underlying_stop',underlying_stop(c['bias'],c['legs'],a['forecast']))
             # Refresh context warnings without changing saved prices or model outcomes.
@@ -244,7 +246,11 @@ class OptionsDesk:
     def compact(a):
         """Scanner-dashboard row. Statuses are re-derived from each idea's stored reasons."""
         row=a if 'forecast_summary' in a else summarise(a)
-        ideas=[{**c,'status':classify(c.get('reasons') or [])} for c in row.get('candidates',[])]
+        ideas=[]
+        for c in row.get('candidates',[]):
+            reasons=list(c.get('reasons') or [])
+            if c.get('calculation_version')!=2: reasons.append('Saved calculation is outdated. Analyse this stock again')
+            ideas.append({**c,'reasons':reasons,'status':classify(reasons)})
         ranked=sorted(ideas,key=lambda c:(STATUS_RANK[c['status']],c.get('score') or 0),reverse=True)
         best=ranked[0] if ranked else None
         f=row.get('forecast_summary') or {}
@@ -527,13 +533,13 @@ class OptionsDesk:
                 else: buy+=price*qty
                 legs.append(dict(symbol=l['symbol'],price=price,levels=levels,quote_time=q['quote_time']))
             # Desk trades are billed like a broker account: brokerage per executed exit order too.
-            orders,per_order=(len(p['legs']),p['prefs'].get('brokerage',0.)) if p.get('fill_model')=='market' else (0,0.)
+            orders,per_order=len(p['legs']),p['prefs'].get('brokerage',0.)
             exit_charges=charges(buy,sell,orders,per_order)
             net=p['entry_credit']+sell-buy-sum(p['entry_charges'].values())-sum(exit_charges.values())
             p={**p,'mark':dict(time=clock().isoformat(),net_pnl=round(net,2),exit_charges=exit_charges,legs=legs)}
             p['exit_signal']='Close: holding period ended' if str(clock().date())>=p['exit_by'] else 'Monitor'
             if net>=max(0,p['entry_credit'])*.5 and p['entry_credit']>0: p['exit_signal']='Review exit: 50% of entry credit earned'
-            if net<=-p['plan']['max_loss']*.5: p['exit_signal']='Review exit: half the planned loss reached'
+            if p['plan'].get('max_loss') and net<=-p['plan']['max_loss']*.5: p['exit_signal']='Review exit: half the planned loss reached'
             stop=p['plan'].get('underlying_stop')
             if stop:
                 spot=self.market.depth(f"NSE:{p['symbol']}-EQ")

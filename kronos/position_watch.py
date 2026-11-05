@@ -11,7 +11,7 @@ import threading
 import numpy as np
 
 from .options_market import clock, market_open, number
-from .options_math import bs, underlying_stop
+from .options_math import bs, underlying_stop, model_exit, fee
 
 import math
 
@@ -58,7 +58,8 @@ def next_event(events):
 def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline=None):
     """Test an open position against every Kronos path and turn the result into one clear action."""
     p = trade['payload']
-    legs = [dict(qty=l['qty'], lot=l['lot'], strike=float(l['strike']), type=l['type'], entry=l['entry_fill'], symbol=l['symbol'])
+    legs = [dict(qty=l['qty'], lot=l['lot'], strike=float(l['strike']), type=l['type'], entry=l['entry_fill'], symbol=l['symbol'],
+                 iv=l.get('iv'),bid=l.get('bid',0.),ask_price=l.get('ask_price',0.))
             for l in p['legs']]
     f = analysis['forecast']
     paths = f.get('paths') or []
@@ -73,15 +74,21 @@ def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline
     stop = kronos_stop(f, legs, bias)
     # Evaluate at the planned exit or the forecast horizon, whichever comes first.
     dates = [r['date'] for r in (paths[0] if paths else [])]
-    idx = max([i for i, d in enumerate(dates) if d <= exit_by] or [len(dates) - 1]) if dates else None
+    eligible = [i for i,d in enumerate(dates) if str(today)<=d<=exit_by]
+    idx = max(eligible) if eligible else None
+    prefs = p.get('prefs') or {}
+    slip, brokerage = prefs.get('slippage',.01), prefs.get('brokerage',20.)
+    credit = sum(-l['qty']*l['lot']*l['entry'] for l in legs)
     pnl, touched, breach = [], 0, 0
     shorts = [l for l in legs if l['qty'] < 0]
     for path in paths:
+        if idx is None:
+            continue
         row = path[idx]
         s = row['close']
         left = max((expiry - datetime.fromisoformat(row['date']).date()).days, 0)
-        pnl.append(sum(l['qty'] * l['lot'] * (bs(s, l['strike'], left, iv, l['type']) - l['entry']) for l in legs) - costs)
-        lows, highs = [r['low'] for r in path[:idx + 1]], [r['high'] for r in path[:idx + 1]]
+        pnl.append(credit-costs+model_exit(legs,s,left,slip,brokerage,fallback_iv=iv))
+        lows, highs = [path[i]['low'] for i in eligible], [path[i]['high'] for i in eligible]
         if stop and ((stop.get('lower') is not None and min(lows) <= stop['lower']) or
                      (stop.get('upper') is not None and max(highs) >= stop['upper'])):
             touched += 1
@@ -92,7 +99,7 @@ def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline
                  expected=round(float(np.mean(pnl)), 2) if pnl else None,
                  tail=round(float(np.quantile(pnl, .1)), 2) if pnl else None,
                  stop_touch_pct=round(touched / n * 100, 1), short_breach_pct=round(breach / n * 100, 1),
-                 eval_date=dates[idx] if dates else None, bias=bias, delta=round(delta, 1))
+                 eval_date=dates[idx] if idx is not None else None, bias=bias, delta=round(delta, 1))
     summary = f.get('summary') or {}
     view = summary.get('bias', '')
     max_profit, max_loss = p['plan'].get('max_profit'), p['plan'].get('max_loss') or 1
@@ -109,10 +116,16 @@ def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline
 
     event = next_event(events)
     event_before_exit = bool(event and event['date'] <= exit_by)
-    if stop and ((stop.get('lower') is not None and spot <= stop['lower']) or (stop.get('upper') is not None and spot >= stop['upper'])):
+    if str(today)>=exit_by:
+        action='Exit'
+        reasons.append('The planned exit date has been reached. Refresh exit quotes; settlement is not modelled.')
+    elif stop and ((stop.get('lower') is not None and spot <= stop['lower']) or (stop.get('upper') is not None and spot >= stop['upper'])):
         action = 'Exit'
         level = stop['lower'] if stop.get('lower') is not None and spot <= stop['lower'] else stop['upper']
         reasons.append(f'Stock ₹{spot:,.2f} has crossed the Kronos stop ₹{level:,.2f}; the view behind this trade no longer holds.')
+    elif idx is None:
+        action='Watch'
+        reasons.append('No future forecast bars before the planned exit. Refresh the forecast; no hold signal is available.')
     elif stats['profit_pct'] is not None and stats['profit_pct'] < EXIT_PROFIT_SHARE and (stats['expected'] or 0) < 0:
         action = 'Exit'
         reasons.append(f"Only {pct0(stats['profit_pct'])}% of the latest Kronos paths end in profit by {stats['eval_date']}, "
@@ -153,13 +166,14 @@ def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline
                     action = 'Watch'
     if event_before_exit:
         reasons.append(f"{event['title']} on {event['date']} falls before your exit ({exit_by}); prices can gap.")
-        if action in ('Hold', 'Watch') and (event.get('days_away') or 99) <= 2:
+        if action in ('Hold', 'Watch') and (event.get('days_away') if event.get('days_away') is not None else 99) <= 2:
             action = 'Adjust'
             suggestion = suggestion or 'Exit or hedge before the event; gaps can jump past stops.'
     if action == 'Hold' and not reasons:
         reasons.append(f"Kronos still favours this trade: {pct0(stats['profit_pct'])}% of paths in profit by {stats['eval_date']}, "
                        f"expected ₹{stats['expected']:,.0f}." if stats['profit_pct'] is not None else 'No forecast paths to test yet.')
     return dict(trade=trade['id'], symbol=p['symbol'], action=action, reasons=reasons, suggestion=suggestion, stats=stats,
+                pricing_note='Model exit includes spread, slippage and brokerage; hold-to-date estimate, stops counted separately. Missing leg IV uses ATM IV, or 25% if unavailable.',
                 stop=stop, event=event, event_before_exit=event_before_exit, view=view, spot=spot, ltp_pnl=ltp_pnl,
                 forecast_id=analysis.get('id'), forecast_created=analysis.get('forecast_created') or analysis.get('created'),
                 forecast_mode=analysis.get('data_mode'), checked=clock().isoformat())
@@ -220,9 +234,19 @@ class PositionWatch:
             if not analysis or not (analysis.get('forecast') or {}).get('paths'):
                 continue
             spot = number((quotes.get(f'NSE:{sym}-EQ') or {}).get('ltp')) or number(analysis.get('spot'))
-            legs_ok = all(l['symbol'] in quotes for l in p['legs'])
-            ltp_pnl = (sum(l['qty'] * l['lot'] * (quotes[l['symbol']]['ltp'] - l['entry_fill']) for l in p['legs'])
-                       - sum((p.get('entry_charges') or {}).values())) if legs_ok else None
+            buy=sell=0.
+            legs_ok=True
+            for leg in p['legs']:
+                quote=quotes.get(leg['symbol']) or {}
+                price=number(quote.get('bid' if leg['qty']>0 else 'ask'))
+                if price<=0:
+                    legs_ok=False; break
+                amount=price*abs(leg['qty'])*leg['lot']
+                if leg['qty']>0:sell+=amount
+                else:buy+=amount
+            credit=sum(-l['qty']*l['lot']*l['entry_fill'] for l in p['legs'])
+            ltp_pnl=(credit+sell-buy-sum((p.get('entry_charges') or {}).values())-
+                     fee(buy,sell,len(p['legs']),(p.get('prefs') or {}).get('brokerage',20.))) if legs_ok else None
             try:
                 events = options.events(sym, p['plan']['expiry'])
             except Exception:

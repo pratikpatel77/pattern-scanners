@@ -1,0 +1,76 @@
+{
+  "symbol": "SBIN",
+  "status": "Review",
+  "reason": "Compare the plans below",
+  "spot": 998.0,
+  "quote_time": 1793861435.0,
+  "forecast_created": "2026-11-05T06:50:05.572123+00:00",
+  "data_mode": "Live",
+  "forecast_end": "2026-11-12",
+  "expiry": "2026-11-23",
+  "forecast": {
+    "asof": "2026-11-05",
+    "summary": {
+      "bias": "Downside bias",
+      "median_end": 978.0552062988281,
+      "median_return_pct": -2.0377397537231445,
+      "end_q10": 959.0837951660156,
+      "end_q90": 1005.8197692871094,
+      "upside_rate": 37.5,
+      "atr": 21.2178571428571,
+      "sample_count": 32
+    },
+    "metadata": {
+      "model": "NeoQuasar/Kronos-small",
+      "tokenizer": "NeoQuasar/Kronos-Tokenizer-base",
+      "model_revision": "901c26c1332695a2a8f243eb2f37243a37bea320",
+      "tokenizer_revision": "0e0117387f39004a9016484a186a908917e22426",
+      "device": "cpu",
+      "torch_version": "2.14.1+cpu",
+      "upstream_revision": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+      "data_hash": "e26450fb54feeac05b9e24e058dfdc4c5a0fa0bd5165ffd2fc930793938df97d",
+      "seed": 2865212316,
+      "lookback_used": 128,
+      "repaired_candles": 9,
+      "calendar": "Estimated weekdays / weekly Fridays",
+      "partial_week": false,
+      "live_spot_at": 1793861406.0,
+      "partial_day": true,
+      "data_mode": "Live",
+      "data_asof": "2026-11-05"
+    }
+  },
+  "candidate_count": 28,
+  "candidates": [
+    {
+      "name": "Put debit spread",
+      "status": "Research only",
+      "reasons": [
+        "Too few profitable model scenarios",
+        "Chain preview: refresh leg depth before entry"
+      ],
+      "entry_credit": -5962.5,
+      "max_loss": 6241.12,
+      "max_profit": 16258.88,
+      "stressed_mean_net": 1385.1,
+      "scenario_profit_pct": 50.0,
+      "stressed_profit_pct": 46.9,
+      "calculation_version": 2
+    },
+    {
+      "name": "Broken-wing butterfly",
+      "status": "Research only",
+      "reasons": [
+        "Stressed net return on maximum loss below minimum",
+        "Chain preview: refresh leg depth before entry"
+      ],
+      "entry_credit": 5850.0,
+      "max_loss": 10284.15,
+      "max_profit": 12215.85,
+      "stressed_mean_net": 410.59,
+      "scenario_profit_pct": 62.5,
+      "stressed_profit_pct": 62.5,
+      "calculation_version": 2
+    }
+  ]
+}
