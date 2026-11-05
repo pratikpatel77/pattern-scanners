@@ -198,6 +198,8 @@ def create_server(service,port=8765):
                 elif self.path=='/api/desk/monitor/check':
                     trade=str(request.get('id') or '') or None
                     self.send(200,{'positions':service.watch.check(only=trade,force=bool(request.get('force')))})
+                elif self.path=='/api/desk/preflight':
+                    self.send(200,service.desk.preflight(request))
                 elif self.path=='/api/desk/paper':
                     self.send(200,service.desk.open_paper(request))
                 elif self.path=='/api/options/paper/open':

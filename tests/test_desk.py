@@ -206,3 +206,45 @@ class PatternLevelTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PreflightTests(unittest.TestCase):
+    """The pre-entry check must reach the same advice the monitor gives after entry."""
+
+    def desk(self, analysis):
+        from kronos.options_market import clock as now
+        expiry = str((now() + timedelta(days=20)).date())
+        by_symbol = {f'NSE:TEST{k}CE': dict(symbol=f'NSE:TEST{k}CE', underlying='TEST', expiry=expiry, lot=100, strike=float(k), type='CE', tick=.05)
+                     for k in (1005, 1010)}
+        journal = SimpleNamespace(latest_forecast_id=lambda s: 'a1' if analysis else None, analysis=lambda k: analysis)
+        options = SimpleNamespace(journal=journal, market=SimpleNamespace(universe=lambda: ['TEST'], by_symbol=by_symbol, contracts=[]),
+                                  events=lambda s, e: dict(upcoming=[]))
+        desk = FastDesk(SimpleNamespace(options=options))
+        quotes = {'NSE:TEST-EQ': dict(ltp=1000.), 'NSE:TEST1005CE': dict(ltp=30., bid=29.9, ask=30.1), 'NSE:TEST1010CE': dict(ltp=27., bid=26.9, ask=27.1)}
+        desk.ltp = lambda symbols: dict(quotes=quotes)
+        return desk
+
+    def request(self):
+        return dict(symbol='TEST', legs=[dict(symbol='NSE:TEST1005CE', lots=-1), dict(symbol='NSE:TEST1010CE', lots=2)])
+
+    def test_no_forecast_is_reported_instead_of_guessing(self):
+        r = self.desk(None).preflight(self.request())
+        self.assertIsNone(r['action'])
+        self.assertIn('Run one', r['message'])
+
+    def test_backspread_with_a_bullish_forecast_passes(self):
+        from test_position_watch import analysis
+        r = self.desk(analysis(1090.)).preflight(self.request())
+        self.assertNotIn(r['action'], ('Adjust', 'Exit'), r['reasons'])
+        self.assertFalse(r['stale'])
+
+    def test_bearish_forecast_against_a_bullish_structure_warns_before_entry(self):
+        from test_position_watch import analysis
+        r = self.desk(analysis(930., bias='Downside bias')).preflight(self.request())
+        self.assertIn(r['action'], ('Adjust', 'Exit'))
+        self.assertTrue(r['reasons'])
+
+    def test_rejects_foreign_legs(self):
+        bad = dict(symbol='TEST', legs=[dict(symbol='NSE:OTHER1005CE', lots=1)])
+        with self.assertRaises(ValueError):
+            self.desk(None).preflight(bad)

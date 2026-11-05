@@ -53,6 +53,18 @@ class GuidanceTests(unittest.TestCase):
         if g['action'] == 'Adjust':
             self.assertIn('900', g['suggestion'])   # roll beyond the Kronos low zone (900)
 
+    def test_call_backspread_is_not_flagged_when_paths_finish_above_the_short_call(self):
+        # INFY case: sell 1 x 1134 CE, buy 2 x 1140 CE. Finishing above the short strike is the profit case.
+        backspread = [leg(-1, 1005, 'CE', 30.), leg(2, 1010, 'CE', 27.)]
+        g = evaluate(trade(backspread), analysis(1090.), 1000., None)
+        self.assertGreater(g['stats']['short_breach_pct'], 90)
+        self.assertNotEqual(g['action'], 'Adjust', g['reasons'])
+
+    def test_credit_call_spread_is_still_flagged_when_paths_finish_above_the_short_call(self):
+        spread = [leg(-1, 1005, 'CE', 30.), leg(1, 1030, 'CE', 12.)]
+        g = evaluate(trade(spread), analysis(1090., bias='Mixed outlook'), 1000., None)
+        self.assertIn(g['action'], ('Adjust', 'Exit'))
+
     def test_exit_when_stock_crosses_the_kronos_stop(self):
         g = evaluate(trade(PUT_SPREAD), analysis(1030.), 950., -300.)
         self.assertEqual(g['action'], 'Exit')

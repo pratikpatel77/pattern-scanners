@@ -478,6 +478,60 @@ class FastDesk:
             raise error
         return dict(quotes=out, time=clock().isoformat(), market_open=market_open(), source='Definedge')
 
+    # ---------- pre-entry check: the same test the position monitor applies after entry ----------
+    def preflight(self, request):
+        """Test proposed legs against the saved Kronos paths exactly as the monitor would the minute after entry,
+        so a warning appears before the trade rather than after it. Advice only; nothing is placed."""
+        from .position_watch import evaluate, REFRESH_MINUTES
+        options = self.service.options
+        symbol = clean_symbol(request.get('symbol'))
+        raw = request.get('legs')
+        if not isinstance(raw, list) or not 1 <= len(raw) <= 6:
+            raise ValueError('Add 1 to 6 legs.')
+        self.market.universe()
+        contracts, legs = [], []
+        for item in raw:
+            contract = self.market.by_symbol.get(str((item or {}).get('symbol', '')))
+            lots = (item or {}).get('lots')
+            if not contract or contract['underlying'] != symbol or type(lots) is not int or lots == 0 or abs(lots) > 50:
+                raise ValueError('A leg is not valid for this stock. Reload the chain.')
+            contracts.append({**contract, 'qty': lots})
+        expiry = contracts[0]['expiry']
+        if len({c['expiry'] for c in contracts}) > 1:
+            raise ValueError('All legs must share one expiry.')
+        key = options.journal.latest_forecast_id(symbol)
+        analysis = options.journal.analysis(key) if key else None
+        if not analysis or not (analysis.get('forecast') or {}).get('paths'):
+            return dict(symbol=symbol, action=None, reasons=[], stale=False, forecast_age_min=None,
+                        message='No saved Kronos forecast for this stock. Run one so this trade can be checked before you enter.')
+        quotes = self.ltp([f'NSE:{symbol}-EQ'] + [c['symbol'] for c in contracts])['quotes']
+        spot = number((quotes.get(f'NSE:{symbol}-EQ') or {}).get('ltp')) or number(analysis.get('spot'))
+        for c in contracts:   # market-order style: buys at the ask, sells at the bid, last price when a side is missing
+            q = quotes.get(c['symbol']) or {}
+            side = number(q.get('ask')) if c['qty'] > 0 else number(q.get('bid'))
+            c['entry_fill'] = side or number(q.get('ltp'))
+            if c['entry_fill'] <= 0:
+                raise ValueError(f"No live price for {c['symbol']}.")
+        credit = sum(-c['qty'] * c['lot'] * c['entry_fill'] for c in contracts)
+        summary = payoff_summary([dict(type=c['type'], strike=c['strike'], qty=c['qty'], lot=c['lot']) for c in contracts], spot, credit, 0.)
+        exit_by = str(datetime.fromisoformat(expiry).date() - timedelta(days=1))
+        trade = dict(id='preflight', payload=dict(symbol=symbol, legs=contracts, entry_charges={}, exit_by=exit_by,
+                                                  plan=dict(expiry=expiry, exit_by=exit_by, max_profit=summary['max_profit'],
+                                                            max_loss=summary['max_loss'])))
+        try:
+            events = options.events(symbol, expiry)
+        except Exception:
+            events = None
+        pool = [c for c in getattr(self.market, 'contracts', []) if c.get('underlying') == symbol and c.get('expiry') == expiry]
+        v = evaluate(trade, analysis, spot, None, pool, events, None)
+        made = datetime.fromisoformat(analysis.get('forecast_created') or analysis['created'])
+        age = (datetime.now(made.tzinfo) - made).total_seconds() / 60
+        stale = market_open() and age > REFRESH_MINUTES
+        return dict(symbol=symbol, action=v['action'], reasons=v['reasons'], suggestion=v['suggestion'], stats=v['stats'],
+                    stop=v['stop'], event=v['event'], event_before_exit=v['event_before_exit'], view=v['view'], spot=spot,
+                    forecast_age_min=round(age, 1), stale=stale, refresh_minutes=REFRESH_MINUTES,
+                    message='The forecast is older than the monitor refresh time: it will be re-run soon after entry and may change this advice. Refresh it first.' if stale else '')
+
     # ---------- paper trade from custom legs ----------
     def open_paper(self, request):
         options = self.service.options

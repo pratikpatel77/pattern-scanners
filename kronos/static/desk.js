@@ -302,7 +302,7 @@ function renderSummary() {
   if (S.view === 'ai') updateAILive();          // the forecast chart shows the builder strategy's profit zone
   for (const el of [document.querySelector('.chart-head'), $('payoff'), $('payoff-grip')]) el.hidden = empty;
   renderContext();
-  if (empty) { box.innerHTML = ''; $('payoff').innerHTML = ''; trade.disabled = true; trade.textContent = 'Paper trade'; $('trade-note').textContent = 'Market-order fill: buy at ask, sell at bid (deeper levels if needed), plus brokerage and charges. No broker order is placed.'; return; }
+  if (empty) { box.innerHTML = ''; $('payoff').innerHTML = ''; renderPreflight(); trade.disabled = true; trade.textContent = 'Paper trade'; $('trade-note').textContent = 'Market-order fill: buy at ask, sell at bid (deeper levels if needed), plus brokerage and charges. No broker order is placed.'; return; }
   const c = S.chain, legs = builderLegs(), m = stats(legs, c.spot.ltp, c.days, c.atm_iv);
   const band = aiBand(S.symbol);
   box.innerHTML = cell(m.premium >= 0 ? 'Net credit' : 'Net debit', inr(Math.abs(m.premium)), m.premium >= 0 ? 'up' : '') +
@@ -312,6 +312,7 @@ function renderSummary() {
     cell('POP · model', num(m.pop, 0) + '%') +
     cell(band ? 'At AI median' : 'Δ / Θ day / Vega', band ? sinr(pnlModel(legs, band.mid, Math.max(0, c.days - daysUntil(band.date)))) : `${num(m.delta, 0)} / ${sinr(m.theta)} / ${sinr(m.vega)}`, band ? tone(pnlModel(legs, band.mid, Math.max(0, c.days - daysUntil(band.date)))) : '');
   drawChart($('payoff'), {legs, spot: c.spot.ltp, days: c.days, ahead: S.target, be: m.be, band});
+  schedulePreflight();
   const open = c.market_open && !c.stale;
   trade.disabled = !open; trade.textContent = `Paper trade · ${S.legs.length} leg${S.legs.length > 1 ? 's' : ''}`;
   $('trade-note').textContent = open ? 'Market-order fill: buy at ask, sell at bid (deeper levels if needed), plus brokerage and charges. No broker order is placed.' : 'Paper entry opens in market hours with live two-sided quotes.';
@@ -373,9 +374,47 @@ function drawChart(el, cfg) {
 }
 window.addEventListener('resize', () => { if (S.legs.length && S.chain) renderSummary(); if (S.view === 'ai') renderAIPane(); });
 
+// ---------- pre-entry check: the same test the position monitor applies right after entry ----------
+const pfBody = () => ({symbol: S.symbol, legs: S.legs.map(l => ({symbol: l.symbol, lots: l.side * l.lots}))});
+const pfSig = () => S.symbol + '|' + S.legs.map(l => `${l.symbol}:${l.side * l.lots}`).join(',');
+const PF_TEXT = {Hold: ['Kronos check: OK to enter', 'ok'], Watch: ['Kronos check: enter with care', 'warn'], 'Book profit': ['Kronos check: OK to enter', 'ok'], Adjust: ['Kronos check: would ask you to adjust right after entry', 'bad'], Exit: ['Kronos check: would say exit right after entry', 'bad']};
+async function preflightNow() {
+  const sig = pfSig(); S.pf = {...(S.pf || {}), sig, busy: true};
+  try { const d = await api('/api/desk/preflight', pfBody()); if (sig === pfSig()) S.pf = {sig, at: Date.now(), data: d}; }
+  catch (e) { if (sig === pfSig()) S.pf = {sig, at: Date.now(), error: e.message}; }
+  renderPreflight(); return S.pf;
+}
+function pfProblem(d) { return !!d && (d.action === 'Adjust' || d.action === 'Exit' || d.action === null || d.stale); }
+function renderPreflight() {
+  const el = $('preflight'), pf = S.pf;
+  if (!S.legs.length || !S.chain || !pf || pf.sig !== pfSig()) { el.hidden = true; return; }
+  if (pf.error) { el.hidden = false; el.className = 'preflight warn'; el.innerHTML = `<b>Kronos check unavailable</b><div>${esc(pf.error)}</div>`; return; }
+  const d = pf.data; if (!d) { el.hidden = true; return; }
+  el.hidden = false;
+  if (d.action === null) { el.className = 'preflight warn'; el.innerHTML = `<b>Kronos check: no forecast yet</b><div>${esc(d.message)}</div>`; return; }
+  const [title, cls] = PF_TEXT[d.action] || [d.action, 'warn'], s = d.stats || {};
+  el.className = 'preflight ' + (d.stale && cls === 'ok' ? 'warn' : cls);
+  el.innerHTML = `<b>${esc(title)}</b>${d.reasons.filter(r => d.action !== 'Hold').map(r => `<div>${esc(r)}</div>`).join('')}${d.suggestion ? `<div>${esc(d.suggestion)}</div>` : ''}
+    ${d.stale ? `<div>${esc(d.message)}</div>` : ''}
+    <small>${ok(s.profit_pct) ? `${num(s.profit_pct, 0)}% of Kronos paths end in profit by ${esc(s.eval_date)} · expected ${sinr(s.expected)}` : ''} · forecast ${num(d.forecast_age_min, 0)} min old · checked before entry, advice only</small>`;
+}
+function schedulePreflight() {
+  if (!S.legs.length || !S.chain) { renderPreflight(); return; }
+  const same = S.pf && S.pf.sig === pfSig();
+  if (!same || (!S.pf.busy && Date.now() - (S.pf.at || 0) > 60000)) { if (!S.pf?.busy || !same) preflightNow(); }
+  renderPreflight();
+}
 $('trade').onclick = async () => {
-  const b = $('trade'); b.disabled = true; const label = b.textContent; b.textContent = 'Recording…';
+  const b = $('trade'); b.disabled = true; const label = b.textContent; b.textContent = 'Checking…';
   try {
+    const pf = await preflightNow(), d = pf.data;
+    // Warn before the order, never only after it: the monitor would say the same thing a minute later.
+    if (pf.error) { if (!confirm('The Kronos pre-entry check could not run (' + pf.error + '). Enter anyway?')) return; }
+    else if (pfProblem(d)) {
+      const lines = d.action === null ? [d.message] : [PF_TEXT[d.action]?.[0], ...d.reasons, d.suggestion, d.stale ? d.message : ''].filter(Boolean);
+      if (!confirm(lines.join('\n\n') + '\n\nEnter this paper trade anyway?')) return;
+    }
+    b.textContent = 'Recording…';
     await api('/api/desk/paper', {symbol: S.symbol, name: strategyName, legs: S.legs.map(l => ({symbol: l.symbol, lots: l.side * l.lots}))});
     toast('Paper trade recorded. See Positions.'); await loadPaper();
   } catch (e) { toast(e.message, true); }

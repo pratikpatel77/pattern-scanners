@@ -391,3 +391,11 @@ body.resizing.rows{cursor:row-resize}
 .ready-events time{color:var(--muted)}
 .ready-events small{color:var(--muted)}
 .since{color:var(--muted);font-weight:600}
+
+/* ---- pre-entry Kronos check ---- */
+.preflight{padding:9px 12px;border-radius:9px;border:1px solid var(--line);font-size:12.5px;display:flex;flex-direction:column;gap:3px}
+.preflight b{font-size:13px}
+.preflight small{color:var(--muted);font-size:11px;margin-top:2px}
+.preflight.ok{background:#f1fbf6;border-color:#bfe8d6;color:#08734f}
+.preflight.warn{background:#fff8e6;border-color:#f3d38a;color:#5b4300}
+.preflight.bad{background:#fee2e2;border-color:#fca5a5;color:#7f1d1d}

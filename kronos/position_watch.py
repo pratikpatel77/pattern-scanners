@@ -123,10 +123,14 @@ def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline
     else:
         threatened = []
         for l in shorts:
-            share = sum(1 for path in paths if (l['type'] == 'PE' and path[idx]['close'] < l['strike']) or
-                        (l['type'] == 'CE' and path[idx]['close'] > l['strike'])) / max(len(paths), 1) * 100
+            beyond = [i for i, path in enumerate(paths) if (l['type'] == 'PE' and path[idx]['close'] < l['strike']) or
+                      (l['type'] == 'CE' and path[idx]['close'] > l['strike'])]
+            share = len(beyond) / max(len(paths), 1) * 100
             median = summary.get('median_end')
-            if share >= 40 or (median and ((l['type'] == 'PE' and median < l['strike']) or (l['type'] == 'CE' and median > l['strike']))):
+            # Finishing beyond a short strike only hurts when the position loses there. A backspread holds extra
+            # long options past the short strike, so for it that is the profit case, not a warning.
+            loses_there = bool(beyond) and float(np.mean([pnl[i] for i in beyond])) < 0
+            if loses_there and (share >= 40 or (median and ((l['type'] == 'PE' and median < l['strike']) or (l['type'] == 'CE' and median > l['strike'])))):
                 threatened.append((l, share))
         against = (bias == 'bullish' and view.startswith('Down')) or (bias == 'bearish' and view.startswith('Up'))
         if threatened:
