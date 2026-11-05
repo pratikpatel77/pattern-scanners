@@ -33,8 +33,8 @@ upward breakouts, so they use the bullish setups only.
 On the **Options desk**, watchlist chips show ▲ (bullish setup), ▼ (bearish) or ▲▼ (both).
 The builder shows each saved setup's trigger, stop and measured-move target
 (trigger ± the trigger-to-stop distance, at least 5%), with one-click strategies:
-buy call / bull call spread to target / bull put spread below the stop, or
-buy put / bear put spread to target / bear call spread above the stop.
+buy call / call debit spread to target / put credit spread below the stop, or
+buy put / put debit spread to target / call credit spread above the stop.
 
 ## Setup (any computer, one time)
 

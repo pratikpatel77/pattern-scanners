@@ -225,8 +225,8 @@ function updateLegPrices() {
 }
 const PRESETS = [
   ['Buy call', [[1, 'CE', 0]]], ['Buy put', [[1, 'PE', 0]]],
-  ['Bull call spread', [[1, 'CE', 0], [-1, 'CE', 2]]], ['Bear put spread', [[1, 'PE', 0], [-1, 'PE', -2]]],
-  ['Bull put spread', [[-1, 'PE', 0], [1, 'PE', -2]]], ['Bear call spread', [[-1, 'CE', 0], [1, 'CE', 2]]],
+  ['Call debit spread', [[1, 'CE', 0], [-1, 'CE', 2]]], ['Put debit spread', [[1, 'PE', 0], [-1, 'PE', -2]]],
+  ['Put credit spread', [[-1, 'PE', 0], [1, 'PE', -2]]], ['Call credit spread', [[-1, 'CE', 0], [1, 'CE', 2]]],
   ['Long straddle', [[1, 'CE', 0], [1, 'PE', 0]]], ['Short straddle', [[-1, 'CE', 0], [-1, 'PE', 0]]],
   ['Short strangle', [[-1, 'CE', 2], [-1, 'PE', -2]]], ['Iron condor', [[1, 'PE', -4], [-1, 'PE', -2], [-1, 'CE', 2], [1, 'CE', 4]]],
   ['Iron fly', [[1, 'PE', -3], [-1, 'PE', 0], [-1, 'CE', 0], [1, 'CE', 3]]],
@@ -793,8 +793,8 @@ function renderContext() {
 // ---------- scanner pattern levels -> ready strategies ----------
 // Bullish: trigger above the pivot, stop below. Bearish: trigger below the breakdown level, stop above.
 const PLAYS = {
-  long: [['Buy call', 'buy'], ['Bull call spread → target', 'debit'], ['Bull put spread below stop', 'credit']],
-  short: [['Buy put', 'buy'], ['Bear put spread → target', 'debit'], ['Bear call spread above stop', 'credit']],
+  long: [['Buy call', 'buy'], ['Call debit spread → target', 'debit'], ['Put credit spread below stop', 'credit']],
+  short: [['Buy put', 'buy'], ['Put debit spread → target', 'debit'], ['Call credit spread above stop', 'credit']],
 };
 function patternHtml(list) {
   if (!list?.length) return '';
@@ -1064,7 +1064,8 @@ function fillNote(p) {
 }
 // ---- performance of closed paper trades ----
 const dirOf = p => { const d = stratDirection(p.legs.map(l => ({type: l.type, strike: l.strike, qty: l.qty, lot: l.lot})), p.entry_spot); return d === 'bullish' ? 'Bullish' : d === 'bearish' ? 'Bearish' : 'Neutral'; };
-const stratName = p => String(p.plan.name || 'Custom').split(' · ')[0];
+const NAME_ALIAS = {'Bull put spread': 'Put credit spread', 'Bear call spread': 'Call credit spread', 'Bull call spread': 'Call debit spread', 'Bear put spread': 'Put debit spread'};
+const stratName = p => { const n = String(p.plan.name || 'Custom').split(' · ')[0]; return NAME_ALIAS[n] || n; };   // older trades keep their saved name; stats merge the two names
 function perfStats(closed) {
   const rows = closed.filter(t => ok(t.payload.mark?.net_pnl)).sort((a, b) => String(a.updated).localeCompare(String(b.updated)))
     .map(t => ({pnl: t.payload.mark.net_pnl, strat: stratName(t.payload), dir: dirOf(t.payload)}));
