@@ -220,7 +220,7 @@ function syncLegs() {
   if (dropped) { toast(`${dropped} leg(s) removed: strike not listed in this expiry.`, true); renderLegs(); }
 }
 function updateLegPrices() {
-  for (const l of S.legs) { const o = optionAt(l.type, l.strike) || {}; l.price = o.ltp || 0; l.iv = o.iv || S.chain?.atm_iv || 25; l.bid = o.bid; l.ask = o.ask; }
+  for (const l of S.legs) { const o = optionAt(l.type, l.strike) || {}; l.price = DeskMath.entryPrice(o,l.side); l.iv = o.iv || S.chain?.atm_iv || 25; l.bid = o.bid; l.ask = o.ask; }
   document.querySelectorAll('.leg').forEach((el, i) => { const l = S.legs[i]; if (l) el.querySelector('.px').innerHTML = `${num(l.price)}<small>${num(l.bid)} / ${num(l.ask)}</small>`; });
 }
 const PRESETS = [
@@ -298,6 +298,12 @@ function renderSummary() {
   for (const el of [document.querySelector('.chart-head'), $('payoff'), $('payoff-grip')]) el.hidden = empty;
   renderContext();
   if (empty) { box.innerHTML = ''; $('payoff').innerHTML = ''; renderPreflight(); trade.disabled = true; trade.textContent = 'Paper trade'; $('trade-note').textContent = 'Market-order fill: buy at ask, sell at bid (deeper levels if needed), plus brokerage and charges. No broker order is placed.'; return; }
+  if (S.legs.some(l => !ok(l.price) || l.price <= 0)) {
+    box.innerHTML = '<p class="hint">A leg has no valid bid/ask. Refresh the chain before calculating this trade.</p>';
+    for (const el of [document.querySelector('.chart-head'), $('payoff'), $('payoff-grip')]) el.hidden = true;
+    $('payoff').innerHTML = ''; $('preflight').hidden = true; trade.disabled = true;
+    $('trade-note').textContent = 'Entry estimates need valid two-sided quotes for every leg.'; return;
+  }
   const c = S.chain, legs = builderLegs(), off = -DeskMath.reserve(legs, S.prefs), m = stats(legs, c.spot.ltp, c.days, c.atm_iv, off);
   const band = aiBand(S.symbol);
   box.innerHTML = cell(m.premium >= 0 ? 'Net credit' : 'Net debit', inr(Math.abs(m.premium)), m.premium >= 0 ? 'up' : '') +
@@ -439,7 +445,7 @@ async function fetchAI(symbol = S.symbol) {
   if (symbol === S.symbol) { renderAI(); if (S.legs.length) renderSummary(); }
   aiTimer = setTimeout(() => fetchAI(S.symbol), S.job ? 1500 : 30000);
 }
-const STATUS = {'Paper candidate': ['Ready', 'good'], 'Research only': ['Research', 'warn'], Skip: ['Review only', 'bad']};
+const STATUS = {'Paper candidate': ['Passed at scan', 'good'], 'Research only': ['Research', 'warn'], Skip: ['Review only', 'bad']};
 function aiAge(a) {
   const when = new Date(a.forecast_created || a.created), mins = (Date.now() - when) / 6e4;
   return mins < 60 ? Math.round(mins) + ' min ago' : mins < 1440 ? Math.round(mins / 60) + ' h ago' : when.toLocaleDateString('en-IN', {day: 'numeric', month: 'short'});
@@ -476,7 +482,7 @@ function rowFor(rows, date) {           // forecast row for a date: exact, else 
 // Strategy to overlay on the forecast: the builder legs, else an open paper position on this stock.
 function aiOverlay() {
   const c = S.chain?.symbol === S.symbol ? S.chain : null;
-  if (S.legs.length && c) {
+  if (S.legs.length && c && S.legs.every(l => ok(l.price) && l.price > 0)) {
     const legs=builderLegs();
     return {kind: 'builder', name: strategyName, legs, off: -DeskMath.reserve(legs,S.prefs), daysAt: d => Math.max(0, c.days - daysUntil(d))};
   }
@@ -632,10 +638,10 @@ function guideHtml(a, spot, o) {
   if (up || down) {
     const room = spot ? (end.median / spot - 1) * 100 : null, passed = spot && (up ? spot >= end.median : spot <= end.median);
     const fail = up ? end.q10 : end.q90, broken = spot && (up ? spot < fail : spot > fail);
-    items.push([up ? 'Bullish trade' : 'Bearish trade', broken ? `Price is already ${up ? 'below' : 'above'} ₹${num(fail, 0)}, where this view fails. Skip new ${up ? 'bullish' : 'bearish'} trades until a fresh forecast agrees.` : passed ? `Price is already past the ₹${num(end.median, 0)} median target for ${by}; wait for a ${up ? 'dip' : 'bounce'} before entering.`
-      : `Target ₹${num(end.median, 0)} by ${by}${room == null ? '' : ` (${pct(room)} from here)`}. The view is wrong on a close ${up ? 'below' : 'above'} ₹${num(up ? end.q10 : end.q90, 0)}.`]);
+    items.push([up ? 'Bullish view' : 'Bearish view', broken ? `Price is already ${up ? 'below' : 'above'} the sampled range boundary of ₹${num(fail, 0)}. Refresh the forecast before considering a new trade.` : passed ? `Price is already past the ₹${num(end.median, 0)} sampled median for ${by}; refresh and check the remaining reward after costs.`
+      : `Sampled median ₹${num(end.median, 0)} by ${by}${room == null ? '' : ` (${pct(room)} from here)`}. The ${up ? 'lower' : 'upper'} sampled boundary is ₹${num(up ? end.q10 : end.q90, 0)}; this is not a validated stop or guaranteed target.`]);
   } else items.push(['Range view', `The middle 80% of sampled closes is ₹${num(end.q10, 0)}–₹${num(end.q90, 0)} by ${by}. Compare hedged range trades after costs; the band alone does not establish an edge.`]);
-  if (ok(a.lower) && ok(a.upper)) items.push(['Option sellers', `Short puts below ₹${num(a.lower, 0)} and short calls above ₹${num(a.upper, 0)} stay outside the Kronos path zone through ${by}${up ? '; the put side fits this view best' : down ? '; the call side fits this view best' : ''}.`]);
+  if (ok(a.lower) && ok(a.upper)) items.push(['Strike reference', `The sampled path zone is ₹${num(a.lower, 0)}–₹${num(a.upper, 0)} through ${by}. Prices can move outside it. Any short option needs separate hedge, liquidity and net reward checks.`]);
   if (o) {
     const odds = overlayOdds(o, end), what = o.kind === 'builder' ? 'Your strategy' : 'Your open position';
     items.push([what, `<b>${esc(o.name)}</b> on ${by}: <b class="${odds.win >= 50 ? 'up' : 'down'}">${num(odds.win, 0)}%</b> of sampled closes in profit · P&L 10th percentile <b class="${tone(odds.bad)}">${sinr(odds.bad)}</b> · median <b class="${tone(odds.mid)}">${sinr(odds.mid)}</b> · 90th percentile <b class="${tone(odds.good)}">${sinr(odds.good)}</b>. Model estimate with cost reserve; holds to this date, without stops or IV stress. Idea rankings include those checks.`]);

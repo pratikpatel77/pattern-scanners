@@ -2,6 +2,10 @@
 // Small, testable calculations shared by the desk's views.
 (function (root) {
   const samples = row => (row?.samples || []).filter(x => Number.isFinite(x) && x > 0);
+  const entryPrice = (quote, side) => {
+    if (!Number.isFinite(quote?.bid) || !Number.isFinite(quote?.ask) || quote.bid <= 0 || quote.ask < quote.bid || !side) return null;
+    return side > 0 ? quote.ask : quote.bid;
+  };
   const quantile = (values, q) => {
     if (!values.length) return null;
     const x = [...values].sort((a, b) => a - b), i = (x.length - 1) * q, lo = Math.floor(i);
@@ -39,7 +43,7 @@
     return {maxProfit: slope > 0 ? Infinity : Math.max(...vals),
       maxLoss: slope < 0 ? -Infinity : Math.min(0, ...vals), be: [...new Set(be)].sort((a, b) => a - b)};
   };
-  const api = {below, outcomes, fees, reserve, bounds};
+  const api = {entryPrice, below, outcomes, fees, reserve, bounds};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.DeskMath = api;
 })(typeof window === 'undefined' ? globalThis : window);

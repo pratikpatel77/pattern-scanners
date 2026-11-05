@@ -7,7 +7,7 @@ import time
 import uuid
 
 from .options_market import FYERS_COOLDOWN, IST, clock, market_open, number
-from .options_math import bs, book_fill, charges, intrinsic, payoff_limits
+from .options_math import bs, book_fill, charges, fee, intrinsic, payoff_limits
 
 CHAIN_URL = 'https://api-t1.fyers.in/data/options-chain-v3'
 QUOTES_URL = 'https://api-t1.fyers.in/data/quotes'
@@ -509,14 +509,16 @@ class FastDesk:
             if c['entry_fill'] <= 0:
                 raise ValueError(f"No entry-side quote for {c['symbol']}.")
         credit = sum(-c['qty'] * c['lot'] * c['entry_fill'] for c in contracts)
-        summary = payoff_summary([dict(type=c['type'], strike=c['strike'], qty=c['qty'], lot=c['lot']) for c in contracts], spot, credit, 0.)
         exit_by = str(datetime.fromisoformat(expiry).date() - timedelta(days=1))
         from .options import preferences
         prefs = preferences(options.journal.settings())
         buy = sum(c['entry_fill']*c['qty']*c['lot'] for c in contracts if c['qty']>0)
         sell = sum(-c['entry_fill']*c['qty']*c['lot'] for c in contracts if c['qty']<0)
+        entry_charges = charges(buy,sell,len(contracts),prefs['brokerage'])
+        reserve = fee(buy+sell,buy+sell,len(contracts),prefs['brokerage']) + (buy+sell)*prefs['slippage']
+        summary = payoff_summary(contracts,spot,credit,sum(entry_charges.values())+reserve)
         trade = dict(id='preflight', payload=dict(symbol=symbol, legs=contracts, prefs=prefs,
-                                                  entry_charges=charges(buy,sell,len(contracts),prefs['brokerage']), exit_by=exit_by,
+                                                  entry_charges=entry_charges, exit_by=exit_by,
                                                   plan=dict(expiry=expiry, exit_by=exit_by, max_profit=summary['max_profit'],
                                                             max_loss=summary['max_loss'])))
         try:
@@ -577,12 +579,14 @@ class FastDesk:
             # One executed order per leg, as the broker would bill it.
             entry_charges = charges(buy, sell, len(legs), prefs['brokerage'])
             credit = round(sell - buy, 2)
-            summary = payoff_summary(legs, number(spot.get('ltp')), credit, sum(entry_charges.values()))
+            reserve = fee(buy+sell,buy+sell,len(legs),prefs['brokerage']) + (buy+sell)*prefs['slippage']
+            summary = payoff_summary(legs, number(spot.get('ltp')), credit, sum(entry_charges.values())+reserve)
             expiry = legs[0]['expiry']
             name = str(request.get('name') or 'Custom strategy')[:60]
             exit_by = str(datetime.fromisoformat(expiry).date() - timedelta(days=1))
             plan = dict(name=name, expiry=expiry, lot=legs[0]['lot'], legs=legs, entry_credit=credit,
-                        exit_by=exit_by, underlying_stop=None, **summary)
+                        exit_by=exit_by, underlying_stop=None, exit_cost_reserve=round(reserve,2),
+                        cost_estimate=round(sum(entry_charges.values())+reserve,2), **summary)
             payload = dict(symbol=symbol, plan=plan, legs=legs, prefs=prefs, entry_spot=number(spot.get('ltp')),
                            entry_time=clock().isoformat(), exit_by=exit_by, entry_credit=credit,
                            entry_charges=entry_charges, research=False, accepted_warnings=[], source='desk', fill_model='market',

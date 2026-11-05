@@ -13,6 +13,8 @@ machine simply doesn't have them, and doesn't need them.
 from __future__ import annotations
 
 import os
+import hashlib
+from io import StringIO
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -38,13 +40,16 @@ def load() -> None:
     global _loaded, _stamps, _managed
     with _lock:
         paths = [ENV_FILE, *_LEGACY]
-        stamps = tuple(p.stat().st_mtime_ns if p.exists() else None for p in paths)
+        # Windows can report the same modification time for consecutive writes.
+        # Check contents so a renewed token is never hidden by timestamp caching.
+        sources = [(str(p), p.read_bytes() if p.exists() else None) for p in paths]
+        stamps = tuple((name, hashlib.sha256(data).digest() if data is not None else None) for name, data in sources)
         if _loaded and stamps == _stamps:
             return
         values = {}
-        for path in paths:
-            if path.exists():
-                for key, value in dotenv_values(path).items():
+        for _, data in sources:
+            if data is not None:
+                for key, value in dotenv_values(stream=StringIO(data.decode('utf-8'))).items():
                     if value is not None:
                         values.setdefault(key, value)
         # Only replace values that we loaded ourselves. Real environment wins.

@@ -137,6 +137,9 @@ class PaperTests(unittest.TestCase):
             self.assertEqual([l['entry_fill'] for l in p['legs']], [10.0, 10.2])  # sell at the bid, buy at the ask
             self.assertEqual(p['plan']['name'], 'Bull put spread')
             self.assertFalse(p['plan']['unlimited_loss'])
+            # The stock-at-zero loss includes both entry costs and the disclosed exit reserve.
+            self.assertAlmostEqual(p['plan']['max_loss'], 2020.+p['plan']['cost_estimate'], places=2)
+            self.assertGreater(p['plan']['exit_cost_reserve'], 0.)
             with self.assertRaises(ValueError):    # one open trade per stock
                 desk.open_paper(dict(symbol='TEST', legs=[dict(symbol='NSE:TEST1000CE', lots=1)]))
 

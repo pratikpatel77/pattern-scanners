@@ -20,6 +20,10 @@ class FreshnessTests(unittest.TestCase):
             env.write_text('TOKEN=old\nEXTERNAL=file\n', encoding='utf-8')
             with patch.dict(os.environ, {'EXTERNAL':'real'}, clear=True), patch.object(config,'ENV_FILE',env), patch.object(config,'_LEGACY',[]), patch.object(config,'_loaded',False), patch.object(config,'_managed',{}), patch.object(config,'_stamps',None):
                 self.assertEqual(config.get('TOKEN'),'old')
+                original_stat = env.stat()
+                env.write_text('TOKEN=new\nEXTERNAL=file\n', encoding='utf-8')
+                os.utime(env, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+                self.assertEqual(config.get('TOKEN'),'new')  # same length and timestamp, different token
                 env.write_text('TOKEN=renewed-value\nEXTERNAL=changed\n', encoding='utf-8')
                 self.assertEqual(config.get('TOKEN'),'renewed-value')
                 self.assertEqual(config.get('EXTERNAL'),'real')

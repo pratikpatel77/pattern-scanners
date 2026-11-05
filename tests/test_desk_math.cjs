@@ -1,5 +1,9 @@
 const assert = require('node:assert/strict');
 const m = require('../kronos/static/desk-math.js');
+assert.equal(m.entryPrice({bid:11.95,ask:12.10,ltp:12},1),12.10);
+assert.equal(m.entryPrice({bid:11.95,ask:12.10,ltp:12},-1),11.95);
+assert.equal(m.entryPrice({bid:0,ask:12.10,ltp:12},1),null);
+assert.equal(m.entryPrice({bid:13,ask:12,ltp:12},-1),null);
 const row = {samples: [90, 100, 110, 140], q10: 93, median: 105, q90: 131};
 assert.equal(m.below(row, 105), 50);
 assert.equal(m.below(row, 150), 100);

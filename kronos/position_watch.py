@@ -55,7 +55,7 @@ def next_event(events):
     return rows[0] if rows else None
 
 
-def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline=None):
+def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline=None, quote_issue=None):
     """Test an open position against every Kronos path and turn the result into one clear action."""
     p = trade['payload']
     legs = [dict(qty=l['qty'], lot=l['lot'], strike=float(l['strike']), type=l['type'], entry=l['entry_fill'], symbol=l['symbol'],
@@ -172,6 +172,12 @@ def evaluate(trade, analysis, spot, ltp_pnl, contracts=(), events=None, baseline
     if action == 'Hold' and not reasons:
         reasons.append(f"Kronos still favours this trade: {pct0(stats['profit_pct'])}% of paths in profit by {stats['eval_date']}, "
                        f"expected ₹{stats['expected']:,.0f}." if stats['profit_pct'] is not None else 'No forecast paths to test yet.')
+    if quote_issue:
+        if str(today) < exit_by:
+            action = 'Watch'
+        reasons.insert(0, quote_issue)
+        suggestion = 'Refresh stock and option quotes before acting; the forecast alone cannot confirm the current trade.'
+        ltp_pnl = None
     return dict(trade=trade['id'], symbol=p['symbol'], action=action, reasons=reasons, suggestion=suggestion, stats=stats,
                 pricing_note='Model exit includes spread, slippage and brokerage; hold-to-date estimate, stops counted separately. Missing leg IV uses ATM IV, or 25% if unavailable.',
                 stop=stop, event=event, event_before_exit=event_before_exit, view=view, spot=spot, ltp_pnl=ltp_pnl,
@@ -233,7 +239,8 @@ class PositionWatch:
                     pass
             if not analysis or not (analysis.get('forecast') or {}).get('paths'):
                 continue
-            spot = number((quotes.get(f'NSE:{sym}-EQ') or {}).get('ltp')) or number(analysis.get('spot'))
+            live_spot = number((quotes.get(f'NSE:{sym}-EQ') or {}).get('ltp'))
+            spot = live_spot or number(analysis.get('spot'))
             buy=sell=0.
             legs_ok=True
             for leg in p['legs']:
@@ -254,7 +261,9 @@ class PositionWatch:
             contracts = [c for c in getattr(options.market, 'contracts', []) if c.get('underlying') == sym and c.get('expiry') == p['plan']['expiry']]
             old = saved.get(t['id'])
             baseline = old.get('baseline') if old else None
-            value = evaluate(t, analysis, spot, ltp_pnl, contracts, events, baseline)
+            quote_issue = ('Current stock or exit-side option quotes are unavailable. This is a forecast-only estimate.'
+                           if live_spot <= 0 or not legs_ok else None)
+            value = evaluate(t, analysis, spot, ltp_pnl, contracts, events, baseline, quote_issue=quote_issue)
             if not baseline:
                 baseline = dict(value['stats'], forecast_id=value['forecast_id'], time=value['checked'])
             prev_action = old.get('action') if old else None

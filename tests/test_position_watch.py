@@ -73,6 +73,13 @@ class GuidanceTests(unittest.TestCase):
     def test_book_profit_at_half_of_max_profit(self):
         self.assertEqual(evaluate(trade(PUT_SPREAD), analysis(1030.), 1000., 300.)['action'], 'Book profit')
 
+    def test_missing_live_quotes_cannot_confirm_hold_or_profit_booking(self):
+        for pnl in (50., 300.):
+            g = evaluate(trade(PUT_SPREAD), analysis(1030.), 1000., pnl, quote_issue='Live quotes unavailable.')
+            self.assertEqual(g['action'], 'Watch')
+            self.assertIsNone(g['ltp_pnl'])
+            self.assertEqual(g['reasons'][0], 'Live quotes unavailable.')
+
     def test_event_before_exit_is_flagged(self):
         e = dict(upcoming=[dict(date=str((clock() + timedelta(days=1)).date()), title='Financial results', days_away=1)])
         g = evaluate(trade(PUT_SPREAD), analysis(1030.), 1000., 50., events=e)
