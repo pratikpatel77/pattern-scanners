@@ -770,12 +770,12 @@ function eventHtml(e, checked, exitBy) {
   return `<div class="ev ${inside === false ? '' : 'hot'}"><b>${esc(e.title)} · ${esc(fullDate(e.date))}</b> <span>${esc(days)}${inside == null ? '' : inside ? ' · before your exit' : ' · after your exit'}</span></div>`;
 }
 const spotOf = symbol => (S.quotes['NSE:' + symbol + '-EQ'] || S.quotes[symbol])?.ltp;
-function stopHtml(stop, bias, symbol) {
+function stopHtml(stop, bias, symbol, held = false) {
   if (!stop) return '<div class="sl none">Kronos stop: run a Kronos forecast to get one</div>';
   const lo = stop.lower != null && bias !== 'bearish', hi = stop.upper != null && bias !== 'bullish';
   const parts = [lo ? `exit if stock falls below <b>₹${num(stop.lower)}</b>` : '', hi ? `exit if stock rises above <b>₹${num(stop.upper)}</b>` : ''].filter(Boolean);
   const now = symbol && spotOf(symbol);
-  const hit = now && ((lo && now < stop.lower) || (hi && now > stop.upper));
+  const hit = held && now && ((lo && now < stop.lower) || (hi && now > stop.upper));
   return `<div class="sl">Kronos stop: ${parts.join(' · ') || '—'}${bias && bias !== 'range' ? ` <small>(${bias} position)</small>` : ''}${now ? ` <span class="sl-now">Stock now ₹${num(now)}</span>` : ''}${hit ? ' <span class="sl-exit">EXIT</span>' : ''}</div>`;
 }
 async function fetchContext(symbol = S.symbol) {
@@ -787,7 +787,7 @@ function renderContext() {
   if (!c) { el.innerHTML = '<div class="ev none">Checking events…</div>'; return; }
   if (c.error) { el.innerHTML = `<div class="ev none">${esc(c.error)}</div>`; return; }
   const legs = S.legs.length && S.chain ? builderLegs() : null, bias = legs ? stratDirection(legs, S.chain.spot.ltp) : null;
-  el.innerHTML = patternHtml(c.setups) + eventHtml(c.event, c.events_checked, S.chain?.expiry_date) + stopHtml(c.stop, bias, S.symbol);
+  el.innerHTML = patternHtml(c.setups) + eventHtml(c.event, c.events_checked, S.chain?.expiry_date) + stopHtml(c.stop, bias, S.symbol, openTrades().some(t => t.payload.symbol === S.symbol));
 }
 
 // ---------- scanner pattern levels -> ready strategies ----------
@@ -1101,7 +1101,7 @@ function renderPositions() {
     const p = t.payload, pnl = livePnl(t), isOpen = S.posOpen === t.id; if (pnl == null) all = false; else total += pnl;
     const sig = p.exit_signal && p.exit_signal !== 'Monitor' ? `<span class="signal ${p.exit_signal.startsWith('EXIT') ? 'danger' : ''}">${esc(p.exit_signal)}</span>` : `<small>Exit by ${esc(p.exit_by || p.plan.exit_by || '')}</small>`;
     const g = S.monitor?.positions?.[t.id];
-    return `<tr class="prow ${isOpen ? 'on' : ''} ${g ? 'g-' + (ACTION[g.action] || '') : ''}" data-row="${esc(t.id)}" title="Show payoff and Kronos guidance"><td><b>${isOpen ? '▾' : '▸'} ${esc(p.symbol)}</b><br><small>${esc(p.plan.expiry)}</small><div>${guideBadge(g)}</div></td><td>${esc(p.plan.name)}<div class="legtxt">${esc(legText(p))}</div>${g ? `<div class="rowctx">${eventHtml(g.event, true, p.exit_by || p.plan.exit_by)}${stopHtml(g.stop, g.stats?.bias, p.symbol)}</div>` : ''}</td>
+    return `<tr class="prow ${isOpen ? 'on' : ''} ${g ? 'g-' + (ACTION[g.action] || '') : ''}" data-row="${esc(t.id)}" title="Show payoff and Kronos guidance"><td><b>${isOpen ? '▾' : '▸'} ${esc(p.symbol)}</b><br><small>${esc(p.plan.expiry)}</small><div>${guideBadge(g)}</div></td><td>${esc(p.plan.name)}<div class="legtxt">${esc(legText(p))}</div>${g ? `<div class="rowctx">${eventHtml(g.event, true, p.exit_by || p.plan.exit_by)}${stopHtml(g.stop, g.stats?.bias, p.symbol, true)}</div>` : ''}</td>
       <td class="n">${p.entry_credit >= 0 ? 'Cr' : 'Dr'} ${inr(Math.abs(p.entry_credit))}</td><td class="n">${p.plan.unlimited_loss ? 'Unlimited' : inr(p.plan.max_loss)}</td>
       <td class="n"><b class="${tone(pnl)}">${pnl == null ? '…' : sinr(pnl)}</b></td><td class="n ${tone(p.mark?.net_pnl)}">${p.mark ? sinr(p.mark.net_pnl) : '—'}</td><td>${sig}</td>
       <td><button data-mark="${esc(t.id)}">Mark</button> <button class="close" data-close="${esc(t.id)}">Exit</button></td></tr>
