@@ -955,9 +955,9 @@ function renderPositions() {
   $('pos-total').textContent = open.length ? (all ? 'Total ' + sinr(total) : 'Total …') : '';
   $('pos-total').className = 'total ' + tone(total);
   const realised = closed.reduce((a, t) => a + (t.payload.mark?.net_pnl || 0), 0);
-  $('closed-pos').innerHTML = closed.length ? `<table class="ptable"><thead><tr><th>Stock</th><th>Strategy · legs</th><th>Closed</th><th class="n">Net P&amp;L <span class="${tone(realised)}">${sinr(realised)}</span></th></tr></thead><tbody>${closed.slice(0, 50).map(t => {
+  $('closed-pos').innerHTML = closed.length ? `<table class="ptable"><thead><tr><th>Stock</th><th>Strategy · legs</th><th>Direction</th><th>Closed</th><th class="n">Net P&amp;L <span class="${tone(realised)}">${sinr(realised)}</span></th></tr></thead><tbody>${closed.slice(0, 50).map(t => {
     const p = t.payload, n = p.mark?.net_pnl;
-    return `<tr><td><b>${esc(p.symbol)}</b></td><td>${esc(p.plan.name)}<div class="legtxt">${esc(legText(p))}</div></td><td>${esc(new Date(t.updated).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'}))}</td><td class="n"><b class="${tone(n)}">${sinr(n)}</b></td></tr>`;
+    return `<tr><td><b>${esc(p.symbol)}</b></td><td>${esc(p.plan.name)}<div class="legtxt">${esc(legText(p))}</div></td><td>${dirOf(p)}</td><td>${esc(new Date(t.updated).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'}))}</td><td class="n"><b class="${tone(n)}">${sinr(n)}</b></td></tr>`;
   }).join('')}</tbody></table>` : '<p class="empty">No closed trades yet.</p>';
 }
 $('view-pos').addEventListener('click', async e => {
@@ -1027,6 +1027,37 @@ new ResizeObserver(() => { if (S.view === 'ai') { cancelAnimationFrame(redraw); 
 const DESK_VERSION = '2.3.0';   // must match /api/health; a mismatch means the app window is running older code
 function restartBanner() {
   const el = document.createElement('div'); el.className = 'restart';
+// ---- performance of closed paper trades ----
+const dirOf = p => { const d = stratDirection(p.legs.map(l => ({type: l.type, strike: l.strike, qty: l.qty, lot: l.lot})), p.entry_spot); return d === 'bullish' ? 'Bullish' : d === 'bearish' ? 'Bearish' : 'Neutral'; };
+const stratName = p => String(p.plan.name || 'Custom').split(' · ')[0];
+function perfStats(closed) {
+  const rows = closed.filter(t => ok(t.payload.mark?.net_pnl)).sort((a, b) => String(a.updated).localeCompare(String(b.updated)))
+    .map(t => ({pnl: t.payload.mark.net_pnl, strat: stratName(t.payload), dir: dirOf(t.payload)}));
+  const wins = rows.filter(r => r.pnl > 0), losses = rows.filter(r => r.pnl <= 0), sum = a => a.reduce((t, r) => t + r.pnl, 0);
+  let total = 0, peak = 0, dd = 0; for (const r of rows) { total += r.pnl; peak = Math.max(peak, total); dd = Math.max(dd, peak - total); }
+  const avgWin = wins.length ? sum(wins) / wins.length : null, avgLoss = losses.length ? sum(losses) / losses.length : null;
+  const expectancy = rows.length ? total / rows.length : null;
+  const group = key => { const m = new Map(); for (const r of rows) { const g = m.get(r[key]) || {name: r[key], n: 0, w: 0, pnl: 0}; g.n++; g.w += r.pnl > 0; g.pnl += r.pnl; m.set(r[key], g); } return [...m.values()].sort((a, b) => b.pnl - a.pnl); };
+  return {n: rows.length, total, wins: wins.length, losses: losses.length, avgWin, avgLoss, expectancy, dd,
+    payoff: avgWin != null && avgLoss ? avgWin / Math.abs(avgLoss) : null,
+    expRatio: expectancy != null && avgLoss ? expectancy / Math.abs(avgLoss) : null,
+    retDd: dd > 0 ? total / dd : null, byStrat: group('strat'), byDir: group('dir')};
+}
+function renderPerf(closed) {
+  const el = $('perf'), r = perfStats(closed);
+  if (!r.n) { el.innerHTML = '<p class="empty">Performance appears after your first closed trade.</p>'; return; }
+  const x = (v, d = 2) => ok(v) ? num(v, d) : '—', best = g => g[0] && g[0].pnl > 0 ? `${esc(g[0].name)} <small class="up">${sinr(g[0].pnl)} · ${g[0].n} trade${g[0].n > 1 ? 's' : ''}</small>` : 'None profitable yet';
+  const table = (title, g) => `<table class="ptable"><thead><tr><th>${title}</th><th class="n">Trades</th><th class="n">Accuracy</th><th class="n">P&amp;L</th><th class="n">Avg / trade</th></tr></thead><tbody>${g.map(v => `<tr><td><b>${esc(v.name)}</b></td><td class="n">${v.n}</td><td class="n">${num(v.w / v.n * 100, 0)}%</td><td class="n ${tone(v.pnl)}">${sinr(v.pnl)}</td><td class="n ${tone(v.pnl)}">${sinr(v.pnl / v.n)}</td></tr>`).join('')}</tbody></table>`;
+  el.innerHTML = `<div class="ai-stats perf-stats">
+    ${cell('Combined P&L', sinr(r.total), tone(r.total))}${cell('Total trades', `${r.n} <small>${r.wins} won · ${r.losses} lost</small>`)}
+    ${cell('Accuracy', num(r.wins / r.n * 100, 0) + '%')}${cell('Average profit', r.avgWin == null ? '—' : sinr(r.avgWin), 'up')}
+    ${cell('Average loss', r.avgLoss == null ? '—' : sinr(r.avgLoss), 'down')}${cell('Avg profit / avg loss', x(r.payoff))}
+    ${cell('Expectancy per trade', sinr(r.expectancy), tone(r.expectancy))}${cell('Expectancy ratio', x(r.expRatio), tone(r.expRatio))}
+    ${cell('Max drawdown', r.dd ? '−' + inr(r.dd) : '₹0', r.dd ? 'down' : '')}${cell('Return / max drawdown', x(r.retDd))}
+    ${cell('Best strategy', best(r.byStrat))}${cell('Best direction', best(r.byDir))}</div>
+    <p class="note">Net of brokerage and charges. Accuracy = closed trades with profit. Expectancy ratio = expectancy ÷ average loss (profit earned per ₹1 of typical loss). Drawdown is the largest fall of cumulative closed P&amp;L from its peak. Direction is read from the legs at entry.</p>
+    <div class="perf-split">${table('Strategy', r.byStrat)}${table('Direction', r.byDir)}</div>`;
+}
   el.innerHTML = '<b>Restart needed.</b> The app window is running an older version, so some features will not work. Close the black "Pattern Scanner - SAI Research" window and run <b>Run Pattern Scanners.bat</b> again.';
   document.body.prepend(el);
 }
@@ -1042,3 +1073,4 @@ function restartBanner() {
     pollWatch(); pollMonitor();
   } catch (e) { setLive('error', e.message); toast(e.message, true); }
 })();
+  renderPerf(closed);
