@@ -874,13 +874,103 @@ document.addEventListener('click', async e => {
 // ---------- views ----------
 function view(name) {
   S.view = name;
-  $('view-chain').hidden = name === 'pos'; $('view-pos').hidden = name !== 'pos';
+  $('view-chain').hidden = name === 'pos' || name === 'ready'; $('view-pos').hidden = name !== 'pos'; $('view-ready').hidden = name !== 'ready';
   document.querySelector('.chain-pane').hidden = name !== 'chain'; $('ai-pane').hidden = name !== 'ai';
-  for (const [id, v] of [['tab-chain', 'chain'], ['tab-ai', 'ai'], ['tab-pos', 'pos']]) $(id).setAttribute('aria-selected', name === v);
+  for (const [id, v] of [['tab-chain', 'chain'], ['tab-ai', 'ai'], ['tab-ready', 'ready'], ['tab-pos', 'pos']]) $(id).setAttribute('aria-selected', name === v);
+  if (name === 'ready') pollReady();
   if (name === 'pos') pollPositions();
-  else { if (S.legs.length) renderSummary(); if (name === 'ai') renderAIPane(); else setTimeout(centreATM); }
+  else if (name !== 'ready') { if (S.legs.length) renderSummary(); if (name === 'ai') renderAIPane(); else setTimeout(centreATM); }
 }
-$('tab-chain').onclick = () => view('chain'); $('tab-ai').onclick = () => view('ai'); $('tab-pos').onclick = () => view('pos');
+$('tab-chain').onclick = () => view('chain'); $('tab-ai').onclick = () => view('ai'); $('tab-pos').onclick = () => view('pos'); $('tab-ready').onclick = () => view('ready');
+
+// ---------- ready to enter: scanner pattern + Kronos agreement across all F&O stocks ----------
+const READY = {ripe: ['Ready', 'Pattern at its trigger and Kronos agrees'], watch: ['Watch', 'Close, but one check is missing'], wait: ['Not yet', 'Waiting for price or a forecast'], skip: ['Skipped', 'Kronos disagrees, price ran past the entry or the stop broke']};
+S.ready = null; S.readyErr = ''; S.readyVerdict = store('desk-ready-v') || 'ripe'; S.readyDir = store('desk-ready-d') || 'all';
+const STATE_TEXT = {triggered: e => `Triggered ${pct(e.past_pct)}`, near: e => `${num(-e.past_pct, 1)}% to trigger`, waiting: e => `${num(-e.past_pct, 1)}% to trigger`,
+  extended: e => `${pct(e.past_pct)} past trigger`, invalidated: () => 'Past stop'};
+function readyRow(e) {
+  const p = e.pattern, k = e.kronos, bull = e.direction === 'bullish', lvl = bull ? ['Above', 'below'] : ['Below', 'above'];
+  const tf = ({W: 'Weekly', D: 'Daily', 'D+W': 'Daily + Weekly'})[p.timeframe] || p.timeframe;
+  const kline = k ? `<b class="k-${k.align}">${esc(k.bias)}</b><small>${ok(k.expected_pct) ? `median ${pct(k.expected_pct)} · ` : ''}${k.age_days === 0 ? 'today' : k.age_days + 'd old'}${k.fresh ? '' : ' · <span class="down">outdated</span>'}</small>`
+    : '<span class="muted">No forecast yet</span>';
+  const best = e.best_idea && STATUS[e.best_idea.status] ? `<small>Best idea: ${esc(e.best_idea.name)} <span class="chip ${STATUS[e.best_idea.status][1]}">${STATUS[e.best_idea.status][0]}</span></small>` : '';
+  return `<tr class="rrow v-${e.verdict}" data-open="${esc(e.symbol)}" title="Open ${esc(e.symbol)} in the chain and builder">
+    <td><b class="dirmark ${bull ? 'up' : 'down'}">${bull ? '▲' : '▼'}</b> <b>${esc(e.symbol)}</b>
+      <div class="px">${num(e.price)} <small class="${tone(e.change_pct)}">${ok(e.change_pct) ? pct(e.change_pct) : ''}</small></div>
+      <small class="muted">${e.live ? esc(e.source) + (e.fresh ? ' · live' : '') : 'scan close'}</small></td>
+    <td><b>${esc(p.title)}</b>${p.more ? ` <small class="muted">+${p.more} more</small>` : ''}<small>${esc(tf)} · score ${Math.round(p.score || 0)} · ${esc(shortDate(p.date))}</small><small>${esc(p.label)}</small></td>
+    <td class="lv"><span class="state s-${e.state}">${STATE_TEXT[e.state](e)}</span>
+      <small>${lvl[0]} <b>₹${num(p.pivot)}</b> · stop <b>₹${num(p.stop)}</b> · target <b>₹${num(p.target)}</b></small></td>
+    <td>${kline}${best}</td>
+    <td><span class="verdict ${e.verdict}" title="${esc(READY[e.verdict][1])}">${READY[e.verdict][0]}</span>${e.verdict === 'ripe' && e.since ? ` <small class="since">since ${clock(e.since)}</small>` : ''}
+      <ul class="why">${e.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul></td>
+    <td class="n"><button class="primary small" data-open="${esc(e.symbol)}">Open</button></td></tr>`;
+}
+function renderReady() {
+  const d = S.ready, list = $('ready-list');
+  if (!d) { list.innerHTML = `<p class="empty">${esc(S.readyErr || 'Checking patterns and Kronos forecasts…')}</p>`; return; }
+  $('ready-count').textContent = d.counts.ripe || '';
+  $('ready-verdicts').innerHTML = Object.keys(READY).map(v => `<button data-v="${v}" aria-pressed="${S.readyVerdict === v}">${READY[v][0]} <b>${d.counts[v]}</b></button>`).join('') +
+    `<button data-v="all" aria-pressed="${S.readyVerdict === 'all'}">All <b>${d.entries.length}</b></button>`;
+  $('ready-dirs').innerHTML = [['all', 'Both'], ['bullish', '▲ Bullish'], ['bearish', '▼ Bearish']].map(([v, t]) => `<button data-d="${v}" aria-pressed="${S.readyDir === v}">${t}</button>`).join('');
+  const age = Math.max(0, Math.round((Date.now() - new Date(d.time)) / 1000));
+  $('ready-meta').textContent = `${d.tracking ? `Tracking since ${clock(d.tracking_since)} while this app runs · ` : ''}${d.stocks} F&O pattern stocks · ${d.with_forecast} with a Kronos forecast · prices ${d.quotes_ok}/${d.quotes_wanted}${d.market_open ? ' live' : ' (market closed: last prices)'}${d.quotes_failed ? ' · some price calls failed' : ''} · updated ${age < 3 ? 'just now' : age + 's ago'}`;
+  renderReadyEvents(d);
+  const rows = d.entries.filter(e => (S.readyVerdict === 'all' || e.verdict === S.readyVerdict) && (S.readyDir === 'all' || e.direction === S.readyDir));
+  if (!rows.length) {
+    const others = d.counts.watch + d.counts.wait + d.counts.skip;
+    list.innerHTML = `<p class="empty">${S.readyVerdict === 'ripe' ? `Nothing passes every check right now.${d.counts.watch ? ` ${d.counts.watch} stock${d.counts.watch > 1 ? 's are' : ' is'} on Watch.` : ''}` : 'No stocks in this view.'}${others && S.readyVerdict === 'ripe' ? ' Pick another view above to see why.' : ''}</p>`;
+    return;
+  }
+  list.innerHTML = `<table class="ptable rtable"><thead><tr><th>Stock</th><th>Scanner pattern</th><th>Entry levels</th><th>Kronos</th><th>Verdict</th><th></th></tr></thead><tbody>${rows.map(readyRow).join('')}</tbody></table>`;
+}
+$('view-ready').addEventListener('click', e => {
+  const v = e.target.closest('[data-v]'), dr = e.target.closest('[data-d]'), open = e.target.closest('[data-open]');
+  if (v) { S.readyVerdict = v.dataset.v; store('desk-ready-v', S.readyVerdict); renderReady(); }
+  else if (dr) { S.readyDir = dr.dataset.d; store('desk-ready-d', S.readyDir); renderReady(); }
+  else if (open) { view('chain'); loadSymbol(open.dataset.open); }
+});
+const clock = iso => iso ? new Date(iso).toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false}) : '';
+const notifyOn = () => store('desk-ready-notify') === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted';
+function renderNotify() {
+  const b = $('ready-notify');
+  if (typeof Notification === 'undefined') { b.hidden = true; return; }
+  const denied = Notification.permission === 'denied', on = notifyOn();
+  b.setAttribute('aria-pressed', on); b.textContent = denied ? '🔕 Blocked in browser' : on ? '🔔 Notifications on' : '🔔 Notify me';
+  b.disabled = denied;
+}
+$('ready-notify').onclick = async () => {
+  if (notifyOn()) { store('desk-ready-notify', '0'); return renderNotify(); }
+  if (Notification.permission === 'default') await Notification.requestPermission();
+  if (Notification.permission === 'granted') { store('desk-ready-notify', '1'); toast('You will be notified when a stock turns Ready while this page is open.'); }
+  renderNotify();
+};
+function renderReadyEvents(d) {
+  const el = $('ready-events'), list = (d.events || []).slice().reverse().slice(0, 8);
+  el.hidden = !list.length;
+  el.innerHTML = list.length ? '<b>Recent changes</b>' + list.map(e => `<button data-open="${esc(e.symbol)}" class="ev-${e.kind}"><time>${clock(e.time)}</time> ${e.direction === 'bullish' ? '▲' : '▼'} <b>${esc(e.symbol)}</b> ${e.kind === 'ready' ? 'became Ready' : 'no longer Ready'} <small>${esc(e.reason)}</small></button>`).join('') : '';
+}
+function announceReady(d) {
+  // Events carry increasing ids. The first poll of this page only sets the mark, so old changes are never announced again.
+  const top = Math.max(0, ...(d.events || []).map(e => e.id));
+  if (S.readySeen == null) { S.readySeen = top; return; }
+  const fresh = (d.events || []).filter(e => e.id > S.readySeen && e.kind === 'ready'); S.readySeen = Math.max(S.readySeen, top);
+  for (const e of fresh) {
+    const text = `${e.symbol} is ready to enter (${e.direction}): ${e.pattern} at ₹${num(e.price)}`;
+    toast(text);
+    if (notifyOn()) { try { new Notification('Ready to enter', {body: `${text}. ${e.reason}`, tag: 'ready-' + e.id}); } catch (err) { /* notification blocked */ } }
+  }
+}
+let readyTimer = null;
+async function pollReady() {
+  clearTimeout(readyTimer);
+  if (!paused()) {
+    try { S.ready = await api('/api/desk/ready'); S.readyErr = ''; announceReady(S.ready); }
+    catch (e) { S.readyErr = e.message; if (!S.ready) S.ready = null; }
+    renderReady(); renderNotify();
+  }
+  readyTimer = setTimeout(pollReady, S.view !== 'ready' ? 60000 : S.chain && !S.chain.market_open ? 30000 : 10000);
+}
 
 // ---------- positions ----------
 async function loadPaper() {
@@ -937,6 +1027,37 @@ function fillNote(p) {
   <p class="note">Entry charges ₹${num(entryCosts(p))}: ${esc(fees(p.entry_charges))}${p.mark?.exit_charges ? ` &nbsp;·&nbsp; Exit charges if closed at last mark ₹${num(Object.values(p.mark.exit_charges).reduce((a, b) => a + b, 0))}: ${esc(fees(p.mark.exit_charges))}` : ''}.
   ${p.fill_model === 'market' ? 'Filled like a market order: buys at the live ask, sells at the live bid, deeper levels if the best price had too little quantity.' : 'Opened before market-order fills; brokerage was not charged on this trade.'} Live P&amp;L uses LTP like a broker MTM; Exit uses the live bid/ask.</p></div>`;
 }
+// ---- performance of closed paper trades ----
+const dirOf = p => { const d = stratDirection(p.legs.map(l => ({type: l.type, strike: l.strike, qty: l.qty, lot: l.lot})), p.entry_spot); return d === 'bullish' ? 'Bullish' : d === 'bearish' ? 'Bearish' : 'Neutral'; };
+const stratName = p => String(p.plan.name || 'Custom').split(' · ')[0];
+function perfStats(closed) {
+  const rows = closed.filter(t => ok(t.payload.mark?.net_pnl)).sort((a, b) => String(a.updated).localeCompare(String(b.updated)))
+    .map(t => ({pnl: t.payload.mark.net_pnl, strat: stratName(t.payload), dir: dirOf(t.payload)}));
+  const wins = rows.filter(r => r.pnl > 0), losses = rows.filter(r => r.pnl <= 0), sum = a => a.reduce((t, r) => t + r.pnl, 0);
+  let total = 0, peak = 0, dd = 0; for (const r of rows) { total += r.pnl; peak = Math.max(peak, total); dd = Math.max(dd, peak - total); }
+  const avgWin = wins.length ? sum(wins) / wins.length : null, avgLoss = losses.length ? sum(losses) / losses.length : null;
+  const expectancy = rows.length ? total / rows.length : null;
+  const group = key => { const m = new Map(); for (const r of rows) { const g = m.get(r[key]) || {name: r[key], n: 0, w: 0, pnl: 0}; g.n++; g.w += r.pnl > 0; g.pnl += r.pnl; m.set(r[key], g); } return [...m.values()].sort((a, b) => b.pnl - a.pnl); };
+  return {n: rows.length, total, wins: wins.length, losses: losses.length, avgWin, avgLoss, expectancy, dd,
+    payoff: avgWin != null && avgLoss ? avgWin / Math.abs(avgLoss) : null,
+    expRatio: expectancy != null && avgLoss ? expectancy / Math.abs(avgLoss) : null,
+    retDd: dd > 0 ? total / dd : null, byStrat: group('strat'), byDir: group('dir')};
+}
+function renderPerf(closed) {
+  const el = $('perf'), r = perfStats(closed);
+  if (!r.n) { el.innerHTML = '<p class="empty">Performance appears after your first closed trade.</p>'; return; }
+  const x = (v, d = 2) => ok(v) ? num(v, d) : '—', best = g => g[0] && g[0].pnl > 0 ? `${esc(g[0].name)} <small class="up">${sinr(g[0].pnl)} · ${g[0].n} trade${g[0].n > 1 ? 's' : ''}</small>` : 'None profitable yet';
+  const table = (title, g) => `<table class="ptable"><thead><tr><th>${title}</th><th class="n">Trades</th><th class="n">Accuracy</th><th class="n">P&amp;L</th><th class="n">Avg / trade</th></tr></thead><tbody>${g.map(v => `<tr><td><b>${esc(v.name)}</b></td><td class="n">${v.n}</td><td class="n">${num(v.w / v.n * 100, 0)}%</td><td class="n ${tone(v.pnl)}">${sinr(v.pnl)}</td><td class="n ${tone(v.pnl)}">${sinr(v.pnl / v.n)}</td></tr>`).join('')}</tbody></table>`;
+  el.innerHTML = `<div class="ai-stats perf-stats">
+    ${cell('Combined P&L', sinr(r.total), tone(r.total))}${cell('Total trades', `${r.n} <small>${r.wins} won · ${r.losses} lost</small>`)}
+    ${cell('Accuracy', num(r.wins / r.n * 100, 0) + '%')}${cell('Average profit', r.avgWin == null ? '—' : sinr(r.avgWin), 'up')}
+    ${cell('Average loss', r.avgLoss == null ? '—' : sinr(r.avgLoss), 'down')}${cell('Avg profit / avg loss', x(r.payoff))}
+    ${cell('Expectancy per trade', sinr(r.expectancy), tone(r.expectancy))}${cell('Expectancy ratio', x(r.expRatio), tone(r.expRatio))}
+    ${cell('Max drawdown', r.dd ? '−' + inr(r.dd) : '₹0', r.dd ? 'down' : '')}${cell('Return / max drawdown', x(r.retDd))}
+    ${cell('Best strategy', best(r.byStrat))}${cell('Best direction', best(r.byDir))}</div>
+    <p class="note">Net of brokerage and charges. Accuracy = closed trades with profit. Expectancy ratio = expectancy ÷ average loss (profit earned per ₹1 of typical loss). Drawdown is the largest fall of cumulative closed P&amp;L from its peak. Direction is read from the legs at entry.</p>
+    <div class="perf-split">${table('Strategy', r.byStrat)}${table('Direction', r.byDir)}</div>`;
+}
 function renderPositions() {
   const open = openTrades(), closed = S.paper.filter(t => t.status === 'closed');
   $('pos-count').textContent = open.length || '';
@@ -959,6 +1080,7 @@ function renderPositions() {
     const p = t.payload, n = p.mark?.net_pnl;
     return `<tr><td><b>${esc(p.symbol)}</b></td><td>${esc(p.plan.name)}<div class="legtxt">${esc(legText(p))}</div></td><td>${dirOf(p)}</td><td>${esc(new Date(t.updated).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'}))}</td><td class="n"><b class="${tone(n)}">${sinr(n)}</b></td></tr>`;
   }).join('')}</tbody></table>` : '<p class="empty">No closed trades yet.</p>';
+  renderPerf(closed);
 }
 $('view-pos').addEventListener('click', async e => {
   const b = e.target.closest('[data-mark],[data-close]');
@@ -1024,40 +1146,9 @@ new ResizeObserver(() => { cancelAnimationFrame(redraw); redraw = requestAnimati
 new ResizeObserver(() => { if (S.view === 'ai') { cancelAnimationFrame(redraw); redraw = requestAnimationFrame(renderAIPane); } }).observe($('ai-chart'));
 
 // ---------- start ----------
-const DESK_VERSION = '2.3.0';   // must match /api/health; a mismatch means the app window is running older code
+const DESK_VERSION = '2.4.0';   // must match /api/health; a mismatch means the app window is running older code
 function restartBanner() {
   const el = document.createElement('div'); el.className = 'restart';
-// ---- performance of closed paper trades ----
-const dirOf = p => { const d = stratDirection(p.legs.map(l => ({type: l.type, strike: l.strike, qty: l.qty, lot: l.lot})), p.entry_spot); return d === 'bullish' ? 'Bullish' : d === 'bearish' ? 'Bearish' : 'Neutral'; };
-const stratName = p => String(p.plan.name || 'Custom').split(' · ')[0];
-function perfStats(closed) {
-  const rows = closed.filter(t => ok(t.payload.mark?.net_pnl)).sort((a, b) => String(a.updated).localeCompare(String(b.updated)))
-    .map(t => ({pnl: t.payload.mark.net_pnl, strat: stratName(t.payload), dir: dirOf(t.payload)}));
-  const wins = rows.filter(r => r.pnl > 0), losses = rows.filter(r => r.pnl <= 0), sum = a => a.reduce((t, r) => t + r.pnl, 0);
-  let total = 0, peak = 0, dd = 0; for (const r of rows) { total += r.pnl; peak = Math.max(peak, total); dd = Math.max(dd, peak - total); }
-  const avgWin = wins.length ? sum(wins) / wins.length : null, avgLoss = losses.length ? sum(losses) / losses.length : null;
-  const expectancy = rows.length ? total / rows.length : null;
-  const group = key => { const m = new Map(); for (const r of rows) { const g = m.get(r[key]) || {name: r[key], n: 0, w: 0, pnl: 0}; g.n++; g.w += r.pnl > 0; g.pnl += r.pnl; m.set(r[key], g); } return [...m.values()].sort((a, b) => b.pnl - a.pnl); };
-  return {n: rows.length, total, wins: wins.length, losses: losses.length, avgWin, avgLoss, expectancy, dd,
-    payoff: avgWin != null && avgLoss ? avgWin / Math.abs(avgLoss) : null,
-    expRatio: expectancy != null && avgLoss ? expectancy / Math.abs(avgLoss) : null,
-    retDd: dd > 0 ? total / dd : null, byStrat: group('strat'), byDir: group('dir')};
-}
-function renderPerf(closed) {
-  const el = $('perf'), r = perfStats(closed);
-  if (!r.n) { el.innerHTML = '<p class="empty">Performance appears after your first closed trade.</p>'; return; }
-  const x = (v, d = 2) => ok(v) ? num(v, d) : '—', best = g => g[0] && g[0].pnl > 0 ? `${esc(g[0].name)} <small class="up">${sinr(g[0].pnl)} · ${g[0].n} trade${g[0].n > 1 ? 's' : ''}</small>` : 'None profitable yet';
-  const table = (title, g) => `<table class="ptable"><thead><tr><th>${title}</th><th class="n">Trades</th><th class="n">Accuracy</th><th class="n">P&amp;L</th><th class="n">Avg / trade</th></tr></thead><tbody>${g.map(v => `<tr><td><b>${esc(v.name)}</b></td><td class="n">${v.n}</td><td class="n">${num(v.w / v.n * 100, 0)}%</td><td class="n ${tone(v.pnl)}">${sinr(v.pnl)}</td><td class="n ${tone(v.pnl)}">${sinr(v.pnl / v.n)}</td></tr>`).join('')}</tbody></table>`;
-  el.innerHTML = `<div class="ai-stats perf-stats">
-    ${cell('Combined P&L', sinr(r.total), tone(r.total))}${cell('Total trades', `${r.n} <small>${r.wins} won · ${r.losses} lost</small>`)}
-    ${cell('Accuracy', num(r.wins / r.n * 100, 0) + '%')}${cell('Average profit', r.avgWin == null ? '—' : sinr(r.avgWin), 'up')}
-    ${cell('Average loss', r.avgLoss == null ? '—' : sinr(r.avgLoss), 'down')}${cell('Avg profit / avg loss', x(r.payoff))}
-    ${cell('Expectancy per trade', sinr(r.expectancy), tone(r.expectancy))}${cell('Expectancy ratio', x(r.expRatio), tone(r.expRatio))}
-    ${cell('Max drawdown', r.dd ? '−' + inr(r.dd) : '₹0', r.dd ? 'down' : '')}${cell('Return / max drawdown', x(r.retDd))}
-    ${cell('Best strategy', best(r.byStrat))}${cell('Best direction', best(r.byDir))}</div>
-    <p class="note">Net of brokerage and charges. Accuracy = closed trades with profit. Expectancy ratio = expectancy ÷ average loss (profit earned per ₹1 of typical loss). Drawdown is the largest fall of cumulative closed P&amp;L from its peak. Direction is read from the legs at entry.</p>
-    <div class="perf-split">${table('Strategy', r.byStrat)}${table('Direction', r.byDir)}</div>`;
-}
   el.innerHTML = '<b>Restart needed.</b> The app window is running an older version, so some features will not work. Close the black "Pattern Scanner - SAI Research" window and run <b>Run Pattern Scanners.bat</b> again.';
   document.body.prepend(el);
 }
@@ -1070,7 +1161,6 @@ function renderPerf(closed) {
     const last = store('desk-symbol');
     const first = S.universe.includes(last) ? last : S.ideas[0]?.symbol || S.universe[0];
     if (first) loadSymbol(first); else setLive('error', 'F&O list unavailable. Check the FYERS login.');
-    pollWatch(); pollMonitor();
+    pollWatch(); pollMonitor(); pollReady();
   } catch (e) { setLive('error', e.message); toast(e.message, true); }
 })();
-  renderPerf(closed);

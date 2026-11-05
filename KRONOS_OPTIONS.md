@@ -25,6 +25,19 @@ The first idea opens automatically, including its payoff, strike editor and pape
 7. In **Paper journal**, refresh marks or close trades with current opposite-side bid/ask fills and nonzero slippage. No broker order is sent. Marks are snapshots, not a streaming P&L feed.
 8. Use **Score due forecasts** to compare saved forecasts with observed stock closes after their fixed due date. This scores forward records, not a historical options backtest. Trading-calendar dates are estimated weekdays; holiday due dates remain unscored rather than shifting the target.
 
+## Ready to enter tab (fast desk, `/options`)
+
+A ranked list of **F&O stocks only**, bullish and bearish, where a saved scanner pattern and the newest saved Kronos forecast agree. It never runs the model; it reads what is already saved, plus live prices (FYERS, Definedge fallback). The badge on the tab counts Ready stocks.
+
+| Verdict | Needs all of |
+|---|---|
+| **Ready** | Price within 2% before the trigger, or up to 3% past it · Kronos view matches the pattern direction (upside for bullish, downside for bearish) · forecast no more than 4 days old and price within 3% of its last close · no result or corporate event inside the trade period |
+| **Watch** | Price in the entry zone but one check above is missing or unconfirmed (no forecast, mixed outlook, old forecast, event ahead), or a Kronos-confirmed setup within 6% of its trigger |
+| **Not yet** | Pattern still far from its trigger and nothing confirms it |
+| **Skipped** | Kronos leans the other way, price is more than 3% past the trigger (chasing), or price is past the stop |
+
+Each row shows the best pattern per direction (Daily and Weekly merged), trigger, stop and measured-move target, the Kronos view with its median move and age, the best saved options idea, and the reason for the verdict. **Open** loads the stock in the chain and builder. Rows are ordered by pattern score, Kronos conviction and closeness to the trigger; this is an ordering, not a probability or a measured win rate. Patterns confirm on a closing basis. Stocks with no forecast stay on Watch until you open them and run Kronos. The levels and thresholds live at the top of `kronos/entry_board.py`.
+
 ## Scanner tab
 
 One sortable table with the latest saved analysis for every stock: status, Kronos view and median return, best idea, credit/debit, max loss, IV-stressed net, net ÷ max loss, profitable model paths, IVP, next event (⚠ when inside the trade period) and analysis age. Status chips and filters (status, forecast view, age, no event in trade period, pattern stocks only) narrow the list; click a column to sort and a row to open the stock. **Scan F&O pattern stocks** analyses only pattern-scanner stocks that have F&O contracts, which is much faster than **Scan all F&O**. **Export CSV** saves the filtered rows. Rows are saved snapshots, not live quotes.

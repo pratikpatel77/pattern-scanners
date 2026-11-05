@@ -94,6 +94,14 @@ class FastDesk:
         self.last_good = {}
         self.locks = {}
         self.guard = threading.Lock()
+        self.board = None
+        self.board_lock = threading.Lock()
+        self.board_state = {}      # (symbol, direction) -> dict(verdict, since)
+        self.board_events = []     # newest last: ready / lost transitions seen while the app was running
+        self.board_seq = 0
+        self.board_thread = None
+        self.board_stop = threading.Event()
+        self.board_started = None
 
     @property
     def market(self):
@@ -275,6 +283,10 @@ class FastDesk:
     def pattern_levels(self, symbol):
         """Saved scanner setups for one stock with a measured-move target, best first.
         Bullish: trigger above the pivot, stop below. Bearish: trigger below the breakdown level, stop above."""
+        return self.pattern_rows(symbol)[:4]
+
+    def pattern_rows(self, only=None):
+        """Every saved scanner setup (or one stock's) with trigger, stop and a measured-move target, best score first."""
         from scanners import ALL_SCANNERS
         try:
             rules = self.service.store.settings()
@@ -283,7 +295,8 @@ class FastDesk:
             r, floor = 1.0, 5.0
         rows, seen = [], {}
         for s in self.service.setups():
-            if str(s.get('symbol', '')).upper() != symbol:
+            symbol = str(s.get('symbol', '')).upper()
+            if only and symbol != only:
                 continue
             try:
                 pivot, stop, close = float(s['pivot']), float(s['support']), float(s['close'])
@@ -298,7 +311,7 @@ class FastDesk:
                 if not pivot > stop > 0:
                     continue
                 target = pivot + max((pivot - stop) * r, pivot * floor / 100)
-            key = (s.get('scanner'), round(pivot, 2), round(stop, 2))
+            key = (symbol, s.get('scanner'), round(pivot, 2), round(stop, 2))
             if key in seen:   # the same pattern on Daily and Weekly: one row
                 row = seen[key]
                 if s.get('timeframe') not in row['timeframe']:
@@ -306,13 +319,120 @@ class FastDesk:
                 row['score'] = max(row['score'] or 0, s.get('score') or 0)
                 continue
             module = ALL_SCANNERS.get(s.get('scanner'))
-            rows.append(dict(scanner=s.get('scanner'), title=module.TITLE if module else str(s.get('scanner')),
+            rows.append(dict(symbol=symbol, scanner=s.get('scanner'), title=module.TITLE if module else str(s.get('scanner')),
                              direction='short' if short else 'long', timeframe=s.get('timeframe', 'D'),
                              date=s.get('date'), label=s.get('label', ''), score=s.get('score'),
                              close=close, pivot=round(pivot, 2), stop=round(stop, 2), target=round(max(target, .05), 2)))
             seen[key] = rows[-1]
         rows.sort(key=lambda x: -(x['score'] or 0))
-        return rows[:4]
+        return rows
+
+    # ---------- entry board: pattern + Kronos agreement across all F&O stocks ----------
+    BOARD_TTL = 8.0       # seconds; browser polls share one pass
+    BOARD_QUOTE_BAND = 10  # only quote stocks whose last scan close is within this % of the trigger
+
+    def entry_board(self):
+        """F&O stocks ranked by how ready they are to enter, from saved scanner setups, the newest saved Kronos
+        forecast per stock and live prices. Never runs the model; stocks without a forecast say so."""
+        with self.board_lock:
+            hit = self.board
+            if hit and time.monotonic() - hit[0] < self.BOARD_TTL:
+                return hit[1]
+            value = self._entry_board()
+            self.board = (time.monotonic(), value)
+            return value
+
+    BOARD_EVERY = 60       # seconds between background checks while the market is open
+
+    def start_board_watch(self):
+        """Re-check the board in the background for as long as the app runs. Nothing is tracked while it is closed."""
+        if self.board_thread and self.board_thread.is_alive():
+            return
+        self.board_stop.clear()
+        self.board_thread = threading.Thread(target=self._board_loop, name='entry-board', daemon=True)
+        self.board_thread.start()
+
+    def close_board_watch(self):
+        self.board_stop.set()
+
+    def _board_loop(self):
+        first = True
+        while not self.board_stop.wait(5 if first else self.BOARD_EVERY):
+            if first or market_open():     # a closed market cannot change prices; the page still refreshes on demand
+                try:
+                    self.board = None          # skip the 8 s page cache: background checks always re-price
+                    self.entry_board()
+                except Exception:          # tracking must never stop the app
+                    pass
+            first = False
+
+    def _track(self, entries, now):
+        """Record when a stock becomes Ready and when it stops being Ready. The first pass is the baseline."""
+        baseline = not self.board_state
+        seen = set()
+        for e in entries:
+            key = (e['symbol'], e['direction'])
+            seen.add(key)
+            old = self.board_state.get(key)
+            if old is None or old['verdict'] != e['verdict']:
+                if not baseline and (e['verdict'] == 'ripe' or (old and old['verdict'] == 'ripe')):
+                    self.board_seq += 1
+                    kind = 'ready' if e['verdict'] == 'ripe' else 'lost'
+                    self.board_events.append(dict(id=self.board_seq, kind=kind, symbol=e['symbol'], direction=e['direction'],
+                                                  price=e['price'], time=now, reason=(e['reasons'] or [''])[0],
+                                                  verdict=e['verdict'], pattern=e['pattern']['title']))
+                    del self.board_events[:-60]
+                old = self.board_state[key] = dict(verdict=e['verdict'], since=now)
+            e['since'] = old['since']
+        for key in set(self.board_state) - seen:   # the setup left the scanner list
+            del self.board_state[key]
+
+    def _fno_symbols(self):
+        try:
+            universe = set(self.market.universe())
+            if universe:
+                return universe
+        except ValueError:
+            pass
+        try:
+            return {key[0] for key in self.service.prices.option_tokens()}
+        except Exception:
+            raise ValueError('F&O stock list unavailable. Check the FYERS login.') from None
+
+    def _entry_board(self):
+        from .entry_board import evaluate
+        fno = self._fno_symbols()
+        rows = [r for r in self.pattern_rows() if r['symbol'] in fno]
+        options = self.service.options
+        analyses = {}
+        for a in options.journal.analyses():    # newest first
+            f = a.get('forecast_summary')
+            if a['symbol'] not in analyses and f and f.get('bias') and a['symbol'] in {r['symbol'] for r in rows}:
+                try:
+                    best = options.compact(a).get('best')
+                except Exception:
+                    best = None
+                analyses[a['symbol']] = {**a, 'best': dict(name=best['name'], status=best['status']) if best else None}
+        near = sorted({r['symbol'] for r in rows
+                       if abs(r['close'] / r['pivot'] - 1) * 100 <= self.BOARD_QUOTE_BAND})
+        quotes, failed = {}, 0
+        for i in range(0, len(near), 50):
+            try:
+                quotes.update(self.service.prices.quotes(near[i:i + 50])['quotes'])
+            except ValueError:
+                failed += 1
+        today = clock().date()
+        entries = evaluate(rows, analyses, quotes, today)
+        now = clock().isoformat()
+        self._track(entries, now)
+        if self.board_started is None:
+            self.board_started = now
+        counts = {v: sum(e['verdict'] == v for e in entries) for v in ('ripe', 'watch', 'wait', 'skip')}
+        return dict(entries=entries, counts=counts, time=now, market_open=market_open(),
+                    events=list(self.board_events), tracking_since=self.board_started,
+                    tracking=bool(self.board_thread and self.board_thread.is_alive()),
+                    stocks=len({r['symbol'] for r in rows}), with_forecast=len(analyses),
+                    quotes_ok=len(quotes), quotes_wanted=len(near), quotes_failed=failed)
 
     def ltp(self, symbols):
         """Last prices for option and stock contracts (open-position MTM). Up to 50 per call."""

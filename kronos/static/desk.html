@@ -30,6 +30,7 @@
   <div class="tabs" role="tablist">
     <button id="tab-chain" role="tab" aria-selected="true">Chain &amp; builder</button>
     <button id="tab-ai" role="tab" aria-selected="false">AI forecast</button>
+    <button id="tab-ready" role="tab" aria-selected="false" title="F&amp;O stocks where a scanner pattern and Kronos agree">Ready to enter <b id="ready-count"></b></button>
     <button id="tab-pos" role="tab" aria-selected="false">Positions <b id="pos-count"></b></button>
   </div>
   <label>Expiry <select id="expiry"></select></label>
@@ -76,15 +77,28 @@
   </aside>
 </main>
 
+<main id="view-ready" class="positions ready" hidden>
+  <div class="pos-head"><h2>Ready to enter</h2><span id="ready-meta" class="ready-meta"></span></div>
+  <p class="ready-intro">F&amp;O stocks where a scanner pattern and the saved Kronos forecast point the same way, price is at or just past the trigger, and no result or corporate event falls inside the trade.</p>
+  <div class="ready-filters">
+    <div id="ready-verdicts" class="seg" role="group" aria-label="Show"></div>
+    <div id="ready-dirs" class="seg" role="group" aria-label="Direction"></div>
+    <button id="ready-notify" class="notify" aria-pressed="false" title="Pop up a desktop notification when a stock turns Ready"></button>
+  </div>
+  <div id="ready-events" class="ready-events" hidden></div>
+  <div id="ready-list"></div>
+  <p class="note">Price-level and forecast-agreement checks, not recommendations or measured win rates. Patterns confirm on a closing basis; Kronos paths are sampled scenarios. Nothing here runs the model: stocks without a recent forecast stay on Watch until you open them and run one. Open a row to see its chain, event dates and ready-made strategies.</p>
+</main>
+
 <main id="view-pos" class="positions" hidden>
   <div class="pos-head"><h2>Open positions</h2><span id="pos-total" class="total"></span><a class="classic" href="/options/classic" target="_top">Full journal &amp; analytics ↗</a></div>
   <div id="pos-spots" class="pos-spots"></div>
   <div id="open-pos"></div>
+  <h2>Performance · closed trades</h2>
+  <div id="perf"></div>
   <h2>Closed</h2>
   <div id="closed-pos"></div>
 </main>
 
 <div id="toast" role="status" hidden></div>
 </body></html>
-  <h2>Performance · closed trades</h2>
-  <div id="perf"></div>

@@ -58,7 +58,7 @@ def create_server(service,port=8765):
             query=parse_qs(route.query)
             try:
                 if route.path=='/api/health':
-                    self.send(200,{'app':'kronos-research','version':'2.3.0'}); return
+                    self.send(200,{'app':'kronos-research','version':'2.4.0'}); return
                 if route.path=='/api/bootstrap':
                     self.send(200,{**service.bootstrap(),'token':token}); return
                 if route.path=='/api/shortlist':
@@ -85,6 +85,8 @@ def create_server(service,port=8765):
                     self.send(200,service.desk.chain(query.get('symbol',[''])[0],query.get('expiry',[''])[0])); return
                 if route.path=='/api/desk/ai':
                     self.send(200,service.desk.ai(query.get('symbol',[''])[0])); return
+                if route.path=='/api/desk/ready':
+                    self.send(200,service.desk.entry_board()); return
                 if route.path=='/api/desk/monitor':
                     self.send(200,service.watch.snapshot()); return
                 if route.path=='/api/desk/context':
@@ -248,6 +250,7 @@ def main(argv=None):
     service.store.recover()
     service.monitor.start()
     service.watch.start()
+    service.desk.start_board_watch()
     service.warm_fallback()
     print(f'Pattern Scanner + SAI Research: {url}\nKeep this window open. Press Ctrl+C to stop.',flush=True)
     if not args.no_open: webbrowser.open(url)

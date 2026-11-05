@@ -260,6 +260,7 @@ class ResearchService:
         return run
 
     def close(self):
+        self.desk.close_board_watch()
         self.watch.close()
         self.refresh.close()
         self.monitor.close()
