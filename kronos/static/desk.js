@@ -1204,7 +1204,7 @@ new ResizeObserver(() => { cancelAnimationFrame(redraw); redraw = requestAnimati
 new ResizeObserver(() => { if (S.view === 'ai') { cancelAnimationFrame(redraw); redraw = requestAnimationFrame(renderAIPane); } }).observe($('ai-chart'));
 
 // ---------- start ----------
-const DESK_VERSION = '2.6.0';   // must match /api/health; a mismatch means the app window is running older code
+const DESK_VERSION = '2.7.0';   // must match /api/health; a mismatch means the app window is running older code
 function restartBanner() {
   const el = document.createElement('div'); el.className = 'restart';
   el.innerHTML = '<b>Restart needed.</b> The app window is running an older version, so some features will not work. Close the black "Pattern Scanner - SAI Research" window and run <b>Run Pattern Scanners.bat</b> again.';

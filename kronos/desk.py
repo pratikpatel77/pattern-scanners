@@ -231,10 +231,15 @@ class FastDesk:
         a = options.journal.analysis(key)
         f = a.get('forecast') or {}
         from .options_math import underlying_stop
+        from .options_selection import select_plan, no_trade_reason
+        from .options import preferences, classify
+        for c in a.get('candidates',[]):
+            select_plan(c,f,a.get('oi_context') or {},preferences(a.get('prefs',{})))
+            c['status']=classify(c['reasons'])
         ideas = []
         for c in options.top_ideas(a.get('candidates', [])):
             if c.get('calculation_version')!=2 or not c.get('oi'):
-                c={**c,'status':'Skip','reasons':list(c.get('reasons',[]))+['Saved calculation is outdated. Analyse this stock again']}
+                continue  # never promote a legacy or incomplete calculation
             try:
                 stop = c.get('underlying_stop') or underlying_stop(c['bias'], c['legs'], f)
             except (KeyError, TypeError, ValueError):
@@ -249,7 +254,7 @@ class FastDesk:
         return dict(symbol=symbol, job=job, analysis=dict(
             id=a['id'], created=a.get('created'), forecast_created=a.get('forecast_created'), data_mode=a.get('data_mode'),
             data_asof=a.get('data_asof'), spot=a.get('spot'), lower=a.get('lower'), upper=a.get('upper'),
-            forecast_end=a.get('forecast_end'), expiry=a.get('expiry'), status=a.get('status'), reason=a.get('reason'),
+            forecast_end=a.get('forecast_end'), expiry=a.get('expiry'), status=a.get('status') if ideas else 'Skip', reason=a.get('reason') if ideas else no_trade_reason(a.get('candidates',[])),
             patterns=a.get('patterns', []), ideas=ideas, oi_context=a.get('oi_context'),
             forecast=dict(asof=f.get('asof'), last_close=f.get('last_close'), summary=f.get('summary'),
                           history=[dict(date=r['date'], close=r['close']) for r in (f.get('history') or [])[-60:]],

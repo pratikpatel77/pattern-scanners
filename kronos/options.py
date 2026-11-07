@@ -15,6 +15,7 @@ from .options_sources import ContextSources
 from .options_market import LiveMarket, clock, market_open, number
 from .options_math import analyse_structure, book_fill, candidates, entry, fee, fill, charges, underlying_stop, reward_reasons, REWARD_REASONS
 from .settings import Settings
+from .options_selection import select_plan, no_trade_reason
 from .options_oi import collect_context, apply_context, UNAVAILABLE, CONFLICT, MIXED
 
 LEGACY=('capital','risk_pct','portfolio_pct')  # paper capital and loss budgets were removed; old saved values are ignored
@@ -130,9 +131,10 @@ class OptionsDesk:
 
     @staticmethod
     def top_ideas(candidates):
-        """The best two distinct structures. Ready ideas rank first; others stay visible for review."""
+        """At most two eligible structures. No fallback to failed research ideas."""
         result=[];names=set()
         for c in sorted(candidates,key=lambda c:(STATUS_RANK.get(c['status'],0),c['score']),reverse=True):
+            if c.get('recommended') is not True or c.get('selection_version') != 1 or c.get('status') != 'Paper candidate': continue
             if c['name'] not in names:
                 result.append(c);names.add(c['name'])
             if len(result)==2: break
@@ -186,6 +188,7 @@ class OptionsDesk:
                 c['reasons'].append('Scheduled event during trade period')
             c['reasons']=[r for r in c['reasons'] if r not in REWARD_REASONS]
             c['reasons'].extend(reward_reasons(c,preferences(a.get('prefs',{}))))
+            select_plan(c,a.get('forecast') or {},a.get('oi_context') or {},preferences(a.get('prefs',{})))
             c['status']=classify(c['reasons'])
             c.pop('checks',None)
         return a
@@ -237,6 +240,7 @@ class OptionsDesk:
             if abs(number(spot['ltp'])/a['forecast']['last_close']-1)>.005:
                 issues.append('Stock moved more than 0.5%. Analyse this stock again')
             plan['reasons']=list(dict.fromkeys(plan['reasons']+issues))
+            select_plan(plan,a['forecast'],oi,prefs)
             plan['status']=classify(plan['reasons'])
             plan['id']=hashlib.sha256(json.dumps([[l['symbol'],l['qty']] for l in fresh]).encode()).hexdigest()[:16]
             plan['quote_time']=min(l['quote_time'] for l in fresh)
@@ -260,13 +264,15 @@ class OptionsDesk:
             if c.get('calculation_version')!=2: reasons.append('Saved calculation is outdated. Analyse this stock again')
             ideas.append({**c,'reasons':reasons,'status':classify(reasons)})
         ranked=sorted(ideas,key=lambda c:(STATUS_RANK[c['status']],c.get('score') or 0),reverse=True)
-        best=ranked[0] if ranked else None
+        eligible=OptionsDesk.top_ideas(ranked)
+        best=eligible[0] if eligible else None
         f=row.get('forecast_summary') or {}
         expected=(f['median_end']/f['last_close']-1)*100 if f.get('median_end') and f.get('last_close') else None
         events=row.get('events') or {}
         upcoming=[e for e in events.get('upcoming',events.get('events',[])) if e.get('date')]
         counts={s:sum(c['status']==s for c in ideas) for s in STATUS_RANK}
         return {k:v for k,v in row.items() if k not in ('candidates','forecast_summary','events','prefs')} | {
+            'reason':row.get('reason') if best else no_trade_reason(ideas),
             'has_forecast':bool(f),'bias':f.get('bias'),'expected_pct':round(expected,2) if expected is not None else None,
             'forecast_close':f.get('median_end'),'ivp_value':(row.get('ivp') or {}).get('value'),
             'events_checked':events.get('checked'),'event_in_trade':bool(events.get('events')),
@@ -447,13 +453,14 @@ class OptionsDesk:
         lower,upper=float(np.quantile(floors,.1)),float(np.quantile(ceilings,.9))
         chain=[c for c in chain if liquid(c,prefs) and c['iv']>0]
         explored=[]
-        for name,bias,legs in candidates(chain,result['last_close'],lower,upper):
+        for name,bias,legs in candidates(chain,result['last_close'],lower,upper,context=oi,target=float(np.median([p[-1]['close'] for p in result['paths']]))):
             try:
                 plan=analyse_structure(name,bias,legs,result,prefs,ivp['value'])
                 apply_context(plan,oi)
                 if base_value.get('data_mode')=='EOD': plan['reasons'].append('EOD analysis: run a live forecast before paper entry')
                 if not events['checked']: plan['reasons'].append('Event calendar needs review')
                 if events['events'] and prefs['avoid_events']: plan['reasons'].append('Scheduled event during trade period')
+                select_plan(plan,result,oi,prefs)
                 plan['status']=classify(plan['reasons'])
                 plan['id']=hashlib.sha256(json.dumps([[l['symbol'],l['qty']] for l in legs]).encode()).hexdigest()[:16]
                 explored.append(plan)
@@ -466,8 +473,8 @@ class OptionsDesk:
             retained.append(c);counts[c['name']]=counts.get(c['name'],0)+1
         for c in retained:
             if c['status']!='Skip': c['reasons'].append('Chain preview: refresh leg depth before entry')
-        value=dict(symbol=symbol,data_mode=base_value.get('data_mode','Live'),data_asof=base_value.get('data_asof'),status='Review' if any(c['status']!='Skip' for c in retained) else 'Skip',
-            reason='Compare the plans below' if retained else 'No liquid, useful hedged structure found',
+        value=dict(symbol=symbol,data_mode=base_value.get('data_mode','Live'),data_asof=base_value.get('data_asof'),status='Review' if self.top_ideas(retained) else 'Skip',
+            reason='Compare the eligible plans below' if self.top_ideas(retained) else no_trade_reason(retained),
             prefs=prefs,forecast=result,forecast_id=forecast_id,spot=number(spot['ltp']),iv=atm['iv'],ivp=ivp,events=events,oi_context=oi,
             patterns=[s.label for s in signals],lower=lower,upper=upper,candidates=retained,
             quote_time=spot['quote_time'],forecast_created=forecast_created,forecast_end=end,expiry=atm['expiry'])
@@ -512,6 +519,7 @@ class OptionsDesk:
             plan=analyse_structure(c['name'],c['bias'],legs,a['forecast'],prefs,a['ivp']['value'])
             apply_context(plan,oi)
             if not events['checked']: plan['reasons'].append('Event calendar needs review')
+            select_plan(plan,a['forecast'],oi,prefs)
             checks=self.entry_checks(plan)
             if checks['blockers'] or (checks['warnings'] and not research):
                 raise ValueError('Fresh entry checks: '+', '.join(checks['blockers']+checks['warnings']))

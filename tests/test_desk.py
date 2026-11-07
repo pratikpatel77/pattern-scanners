@@ -159,12 +159,12 @@ class AITests(unittest.TestCase):
             journal = OptionsJournal(Store(f'{d}/r.sqlite3'))
             forecast = dict(asof='2026-10-30', last_close=1000., summary=dict(bias='Upside bias', median_end=1020., sample_count=32),
                             history=[dict(date=f'2026-10-{i:02d}', close=990. + i) for i in range(1, 31)],
-                            forecast=[dict(date='2026-11-02', median=1005., q10=990., q90=1015.)], paths=[])
+                            forecast=[dict(date='2026-11-02', median=1005., q10=990., q90=1015.)], paths=[[dict(date='2026-11-02',close=1020.)] for _ in range(32)])
             legs = [dict(strike=980., type='PE', qty=-1, ltp=8.), dict(strike=960., type='PE', qty=1, ltp=4.)]
             idea = dict(id='a', oi=dict(version=1,bias='neutral'), calculation_version=2, name='Put credit spread', bias='bullish', status='Paper candidate', score=5, expiry='2026-11-23',
-                        entry_credit=400., max_loss=1600., legs=legs, reasons=['Chain preview: refresh leg depth before entry'],
+                        entry_credit=400., max_loss=1600., stressed_mean_net=200.,stressed_profit_pct=75.,legs=legs, reasons=['Chain preview: refresh leg depth before entry'],
                         underlying_stop=dict(lower=985., upper=None))
-            journal.save_analysis(dict(symbol='TEST', forecast=forecast, candidates=[idea], data_mode='EOD', lower=980., upper=1030.))
+            journal.save_analysis(dict(symbol='TEST', forecast=forecast, candidates=[idea], oi_context=dict(available=True,bias='neutral'), data_mode='EOD', lower=980., upper=1030.))
             options = SimpleNamespace(journal=journal, top_ideas=OptionsDesk.top_ideas)
             desk = FastDesk(SimpleNamespace(options=options, active=None))
             a = desk.ai('TEST')['analysis']

@@ -50,11 +50,11 @@ class MathTests(unittest.TestCase):
         self.assertIn('Stressed net profit below minimum',plan['reasons'])
         self.assertIn('Stressed net profit below minimum',OptionsDesk.entry_checks(plan)['warnings'])
 
-    def test_best_ideas_always_shown_but_passing_ones_rank_first(self):
-        passed=dict(name='Spread',score=.1,status='Paper candidate')
+    def test_best_ideas_never_fall_back_to_failed_plans(self):
+        passed=dict(name='Spread',score=.1,status='Paper candidate',recommended=True,selection_version=1)
         failed=dict(name='Condor',score=99,status='Skip')
-        self.assertEqual(OptionsDesk.top_ideas([failed]),[failed])
-        self.assertEqual(OptionsDesk.top_ideas([failed,passed]),[passed,failed])
+        self.assertEqual(OptionsDesk.top_ideas([failed]),[])
+        self.assertEqual(OptionsDesk.top_ideas([failed,passed]),[passed])
 
     def test_underlying_invalidation_stops_match_direction(self):
         f=forecast_value();f['summary']['atr']=20
@@ -399,6 +399,7 @@ class JournalTests(unittest.TestCase):
     def test_top_two_are_distinct_and_prefer_eligible_plans(self):
         rows=[dict(name='Put spread',score=1,status='Skip'),dict(name='Put spread',score=.5,status='Paper candidate'),
               dict(name='Put spread',score=.4,status='Paper candidate'),dict(name='Condor',score=.3,status='Paper candidate')]
+        for row in rows: row.update(recommended=row['status']=='Paper candidate',selection_version=1)
         chosen=OptionsDesk.top_ideas(rows)
         self.assertEqual([c['name'] for c in chosen],['Put spread','Condor'])
         self.assertEqual(chosen[0]['score'],.5)
@@ -408,6 +409,8 @@ class JournalTests(unittest.TestCase):
         for p in f['paths']:p[-1].update(close=1100.,high=1103.)
         legs=[option(970,qty=-1,bid=8,ask=8.1),option(950,qty=1,bid=3,ask=3.1)]
         plan=analyse_structure('Put credit spread','bullish',legs,f,prefs,70);plan['id']='original'
+        from kronos.options_selection import select_plan
+        select_plan(plan,f,dict(available=True,bias='neutral'),prefs)
         a=self.j.save_analysis(dict(symbol='TEST',prefs=prefs,spot=1000,forecast=f,forecast_id='f',
             forecast_end='2026-11-06',expiry='2026-11-23',ivp=dict(value=70),candidates=[plan]))
         chain=legs+[option(960,bid=4,ask=4.1)]
@@ -511,21 +514,22 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(classify(['Scheduled event during trade period']),'Skip')
         rows=[dict(name='Condor',score=9,status='Research only'),dict(name='Spread',score=1,status='Paper candidate'),
               dict(name='Fly',score=99,status='Skip')]
-        self.assertEqual([c['name'] for c in OptionsDesk.top_ideas(rows)],['Spread','Condor'])
-        # Nothing is hidden: with only blocked ideas, the best two are still returned.
-        self.assertEqual([c['name'] for c in OptionsDesk.top_ideas([rows[2],dict(name='Cal',score=5,status='Skip')])],['Fly','Cal'])
+        for row in rows: row.update(recommended=row['status']=='Paper candidate',selection_version=1)
+        self.assertEqual([c['name'] for c in OptionsDesk.top_ideas(rows)],['Spread'])
+        # Rejected plans stay in the saved audit but are never recommended.
+        self.assertEqual(OptionsDesk.top_ideas([rows[2],dict(name='Cal',score=5,status='Skip')]),[])
 
     def test_research_only_saved_idea_is_visible_and_needs_acknowledgement(self):
         desk,a,chain=self.manual_desk()
         a['ivp']['value']=None
         a['candidates'][0]['reasons']=['IV percentile needs a dated source']
         a=self.j.save_analysis(a)
-        self.assertEqual(desk.compact(a)['best']['status'],'Research only')
+        self.assertIsNone(desk.compact(a)['best'])
         with self.assertRaisesRegex(ValueError,'Review'):
             desk.open_paper(dict(analysis=a['id'],candidate='original'))
         a['candidates'][0]['reasons']=['A selected leg fails liquidity or depth checks']
         a=self.j.save_analysis(a)
-        self.assertEqual(desk.compact(a)['best']['status'],'Skip')  # still shown for review
+        self.assertIsNone(desk.compact(a)['best'])  # retained in audit, not promoted
         with self.assertRaisesRegex(ValueError,'liquidity'):
             desk.open_paper(dict(analysis=a['id'],candidate='original',accept_warnings=True))
 

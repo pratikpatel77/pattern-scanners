@@ -58,7 +58,7 @@ def create_server(service,port=8765):
             query=parse_qs(route.query)
             try:
                 if route.path=='/api/health':
-                    self.send(200,{'app':'kronos-research','version':'2.6.0'}); return
+                    self.send(200,{'app':'kronos-research','version':'2.7.0'}); return
                 if route.path=='/api/bootstrap':
                     self.send(200,{**service.bootstrap(),'token':token}); return
                 if route.path=='/api/shortlist':

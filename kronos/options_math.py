@@ -125,25 +125,34 @@ def expiry_value(legs, spot, lot):
     return sum(l['qty']*intrinsic(l['type'],l['strike'],spot)*lot for l in legs)
 
 
-def candidates(options, spot, lower, upper):
+def candidates(options, spot, lower, upper, context=None, target=None):
     """Explore multiple widths. Every short has a same-expiry risk hedge."""
     puts = sorted([o for o in options if o['type']=='PE'], key=lambda o:o['strike'])
     calls = sorted([o for o in options if o['type']=='CE'], key=lambda o:o['strike'])
     def leg(o, qty): return {**o, 'qty':qty}
     groups = []
+    own = (context or {}).get('by_expiry',{}).get(options[0]['expiry'],{}) if options else {}
+    def nearest(chain, targets, count=2):
+        chosen={}
+        for t in targets:
+            if t is not None:
+                for o in sorted(chain,key=lambda o:abs(o['strike']-t))[:count]: chosen[o['symbol']]=o
+        return list(chosen.values())
     for kind, chain in [('PE',puts),('CE',calls)]:
-        shorts = sorted(chain, key=lambda o:abs(o['strike']-(lower if kind=='PE' else upper)))[:3]
+        bound=lower if kind=='PE' else upper
+        wall=own.get('support' if kind=='PE' else 'resistance') or {}
+        otm=[o for o in chain if o['strike'] < spot] if kind=='PE' else [o for o in chain if o['strike'] > spot]
+        shorts=nearest(otm,[bound,(spot+bound)/2,spot,wall.get('strike')])
         for short in shorts:
-            if (kind=='PE' and short['strike']>lower) or (kind=='CE' and short['strike']<upper):
-                continue
             hedges = [o for o in chain if (o['strike']<short['strike'] if kind=='PE' else o['strike']>short['strike'])]
-            for hedge in sorted(hedges,key=lambda o:abs(o['strike']-short['strike']))[:3]:
+            ordered=sorted(hedges,key=lambda o:abs(o['strike']-short['strike']))
+            for hedge in [ordered[i] for i in (0,1,2,4) if i<len(ordered)]:
                 groups.append(('Put credit spread' if kind=='PE' else 'Call credit spread',
                                'bullish' if kind=='PE' else 'bearish', [leg(short,-1),leg(hedge,1)]))
-        atm = sorted(chain,key=lambda o:abs(o['strike']-spot))[:2]
+        atm = sorted(chain,key=lambda o:abs(o['strike']-spot))[:3]
         for long in atm:
             otm = [o for o in chain if (o['strike']>long['strike'] if kind=='CE' else o['strike']<long['strike'])]
-            for short in sorted(otm,key=lambda o:abs(o['strike']-long['strike']))[:3]:
+            for short in nearest(otm,[long['strike'],target,lower if kind=='PE' else upper],count=3):
                 groups.append(('Call debit spread' if kind=='CE' else 'Put debit spread',
                                'bullish' if kind=='CE' else 'bearish',[leg(long,1),leg(short,-1)]))
         # Butterflies, unequal wings and 1x2 backspreads: only capped loss survives scoring.

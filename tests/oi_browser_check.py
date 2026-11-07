@@ -9,6 +9,9 @@ from playwright.sync_api import sync_playwright
 from kronos.service import ResearchService
 from kronos.server import create_server
 from test_options_oi import raw, snapshot
+from test_kronos_options import forecast_value, option
+from kronos.options import preferences
+from kronos.options_math import analyse_structure
 from kronos.options_oi import build_context
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -20,6 +23,13 @@ with tempfile.TemporaryDirectory() as tmp:
         return raw(expiry=expiry)
     service.sensibull._post=response
     service.sensibull.series=lambda symbol,kind:dict(rows=[])
+    f=forecast_value();f['asof']='2026-10-30';f['history']=[dict(date='2026-10-29',open=999,high=1005,low=995,close=999),dict(date='2026-10-30',open=1000,high=1005,low=995,close=1000)]
+    legs=[option(970,qty=-1,bid=8,ask=8.1),option(950,bid=3,ask=3.1)]
+    candidate=analyse_structure('Put credit spread','bullish',legs,f,preferences({}),70)
+    candidate.update(id='test',oi=dict(version=1,bias='bearish'))
+    service.options.journal.save_analysis(dict(symbol='TEST',forecast=f,candidates=[candidate],
+        oi_context=dict(available=True,bias='bearish'),prefs=preferences({}),data_mode='EOD',data_asof='2026-10-30',
+        forecast_end='2026-11-06',expiry='2026-11-23',spot=1000,lower=970,upper=1040))
     server=create_server(service,0)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
@@ -46,8 +56,15 @@ with tempfile.TemporaryDirectory() as tmp:
             page.locator('#oi-history summary').click()
             assert 'next-month share' in page.locator('#oi-history').inner_text().lower()
             assert 'futures history' in page.locator('#oi-history').inner_text().lower()
+            data=page.request.get(f'http://127.0.0.1:{server.server_port}/api/desk/ai?symbol=TEST').json()
+            assert data['analysis']['ideas']==[]
+            page.evaluate("d => {S.aiData.TEST=d; S.autoRan.TEST=true; renderAI();view('ai');}",data)
+            assert 'No worthwhile trade' in page.locator('#ai-detail').inner_text()
+            assert page.locator('#ai-detail [data-ai="load"]').count()==0
+            assert page.locator('#ai-ideas [data-ai="load"]').count()==0
+            page.screenshot(path='outputs/strategy-selection-browser-2026-11-07.png',full_page=True)
             assert not errors, errors
             browser.close()
-            print('Browser passed: two-expiry API/table, daily changes, incomplete windows, context explanation; no JS errors.')
+            print('Browser passed: two-expiry API/table, daily changes, incomplete windows, context explanation, rejected strategies hidden from both idea panels; no JS errors.')
     finally:
         server.shutdown();server.server_close();service.close()

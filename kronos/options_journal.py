@@ -11,7 +11,7 @@ def encode(value): return json.dumps(value,allow_nan=False)
 
 
 CANDIDATE_FIELDS=('id','name','bias','status','reasons','score','entry_credit','max_loss','max_profit',
-                  'stressed_mean_net','scenario_profit_pct','short_touch_pct','expiry','calculation_version','oi')
+                  'stressed_mean_net','scenario_profit_pct','short_touch_pct','expiry','calculation_version','oi','recommended','selection_version','selection_reasons','stressed_profit_pct')
 
 
 def summarise(value):

@@ -1,0 +1,383 @@
+{
+  "symbol": "LICHSGFIN",
+  "forecast_bias": "bearish",
+  "oi_bias": "bullish",
+  "plans": [
+    {
+      "name": "Put credit spread",
+      "bias": "bullish",
+      "max_profit": 305.79,
+      "max_loss": 9694.21,
+      "stressed_mean_net": -1214.67,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Credit too small for the spreads",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Put debit spread",
+      "bias": "bearish",
+      "max_profit": 26443.6,
+      "max_loss": 8556.4,
+      "stressed_mean_net": 546.87,
+      "stressed_profit_pct": 43.8,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net return on maximum loss below minimum",
+        "Too few profitable model scenarios",
+        "OI and price context conflicts with this direction",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Put debit spread",
+      "bias": "bearish",
+      "max_profit": 35901.46,
+      "max_loss": 9098.54,
+      "stressed_mean_net": 534.78,
+      "stressed_profit_pct": 43.8,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net return on maximum loss below minimum",
+        "Too few profitable model scenarios",
+        "OI and price context conflicts with this direction",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Broken-wing butterfly",
+      "bias": "range",
+      "max_profit": 10160.78,
+      "max_loss": 14839.22,
+      "stressed_mean_net": -1205.71,
+      "stressed_profit_pct": 31.2,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Credit too small for the spreads",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Put debit spread",
+      "bias": "bearish",
+      "max_profit": 23519.89,
+      "max_loss": 6480.11,
+      "stressed_mean_net": 89.17,
+      "stressed_profit_pct": 40.6,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Too few profitable model scenarios",
+        "OI and price context conflicts with this direction",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Call credit spread",
+      "bias": "bearish",
+      "max_profit": 455.48,
+      "max_loss": 4544.52,
+      "stressed_mean_net": -567.68,
+      "stressed_profit_pct": 28.1,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Credit too small for the spreads",
+        "OI and price context conflicts with this direction",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Broken-wing butterfly",
+      "bias": "range",
+      "max_profit": 23872.87,
+      "max_loss": 6127.13,
+      "stressed_mean_net": -168.16,
+      "stressed_profit_pct": 53.1,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Broken-wing butterfly",
+      "bias": "range",
+      "max_profit": 6072.32,
+      "max_loss": 8927.68,
+      "stressed_mean_net": -1234.01,
+      "stressed_profit_pct": 31.2,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Credit too small for the spreads",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Iron condor",
+      "bias": "range",
+      "max_profit": 761.27,
+      "max_loss": 9238.73,
+      "stressed_mean_net": -1469.51,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Credit too small for the spreads",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Put backspread",
+      "bias": "bearish",
+      "max_profit": 470109.13,
+      "max_loss": 29890.87,
+      "stressed_mean_net": -3708.56,
+      "stressed_profit_pct": 50.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "OI and price context conflicts with this direction",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Iron butterfly",
+      "bias": "range",
+      "max_profit": 8773.68,
+      "max_loss": 26226.32,
+      "stressed_mean_net": -5607.36,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Iron butterfly",
+      "bias": "range",
+      "max_profit": 11001.89,
+      "max_loss": 23998.11,
+      "stressed_mean_net": -5208.49,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Put backspread",
+      "bias": "bearish",
+      "max_profit": 517752.71,
+      "max_loss": 12247.29,
+      "stressed_mean_net": -2687.19,
+      "stressed_profit_pct": 28.1,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "OI and price context conflicts with this direction",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Call backspread",
+      "bias": "bullish",
+      "max_profit": null,
+      "max_loss": 15045.71,
+      "stressed_mean_net": -6858.92,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Butterfly",
+      "bias": "range",
+      "max_profit": 9912.12,
+      "max_loss": 5087.88,
+      "stressed_mean_net": -1925.21,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Call debit spread",
+      "bias": "bullish",
+      "max_profit": 1435.95,
+      "max_loss": 3564.05,
+      "stressed_mean_net": -2296.5,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Call debit spread",
+      "bias": "bullish",
+      "max_profit": 4267.39,
+      "max_loss": 5732.61,
+      "stressed_mean_net": -3724.22,
+      "stressed_profit_pct": 3.1,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Call backspread",
+      "bias": "bullish",
+      "max_profit": null,
+      "max_loss": 14502.13,
+      "stressed_mean_net": -9758.79,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Call debit spread",
+      "bias": "bullish",
+      "max_profit": 11211.7,
+      "max_loss": 8788.3,
+      "stressed_mean_net": -5969.43,
+      "stressed_profit_pct": 3.1,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Butterfly",
+      "bias": "range",
+      "max_profit": 6735.2,
+      "max_loss": 3264.8,
+      "stressed_mean_net": -1964.94,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Iron butterfly",
+      "bias": "range",
+      "max_profit": 4823.68,
+      "max_loss": 5176.32,
+      "stressed_mean_net": -4142.56,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    },
+    {
+      "name": "Butterfly",
+      "bias": "range",
+      "max_profit": 2831.29,
+      "max_loss": 2168.71,
+      "stressed_mean_net": -1887.46,
+      "stressed_profit_pct": 0.0,
+      "recommended": false,
+      "selection_reasons": [
+        "Stressed net profit below minimum",
+        "Stressed net return on maximum loss below minimum",
+        "Negative average outcome under IV stress",
+        "Too few profitable model scenarios",
+        "Strategy direction conflicts with the price forecast",
+        "Price forecast and OI disagree; wait for alignment"
+      ]
+    }
+  ],
+  "eligible_count": 0,
+  "message": "No worthwhile trade. Strategy direction conflicts with the price forecast; Price forecast and OI disagree; wait for alignment; Stressed net profit below minimum; Stressed net return on maximum loss below minimum"
+}
