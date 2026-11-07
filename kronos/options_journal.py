@@ -11,13 +11,15 @@ def encode(value): return json.dumps(value,allow_nan=False)
 
 
 CANDIDATE_FIELDS=('id','name','bias','status','reasons','score','entry_credit','max_loss','max_profit',
-                  'stressed_mean_net','scenario_profit_pct','short_touch_pct','expiry','calculation_version')
+                  'stressed_mean_net','scenario_profit_pct','short_touch_pct','expiry','calculation_version','oi')
 
 
 def summarise(value):
     """Small list row: no sampled paths, payoff curves or quotes."""
     f=value.get('forecast')
     row={k:v for k,v in value.items() if k not in ('forecast','candidates')}
+    if row.get('oi_context'):
+        row['oi_context']={k:v for k,v in row['oi_context'].items() if k not in ('windows','by_expiry')}
     row['forecast_summary']=dict(last_close=f.get('last_close'),asof=f.get('asof'),
         **{k:(f.get('summary') or {}).get(k) for k in ('bias','median_end','sample_count')}) if f else None
     row['candidates']=[{k:c.get(k) for k in CANDIDATE_FIELDS} for c in value.get('candidates',[])]

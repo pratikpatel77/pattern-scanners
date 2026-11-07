@@ -86,6 +86,7 @@ function loadSymbol(symbol) {
   $('sym').textContent = symbol; $('spot').textContent = '…'; $('spot-ch').textContent = '';
   $('chain').innerHTML = '<tr><td colspan="11" class="empty">Loading option chain…</td></tr>';
   renderAI(); renderWatch(); renderLegs(); pollChain(); fetchAI(symbol); renderContext(); fetchContext(symbol);
+  if (S.view === 'oi') window.openOI?.();
 }
 let chainTimer = null, chainSeq = 0;
 async function pollChain() {
@@ -536,7 +537,7 @@ function renderAI() {
   else box.innerHTML = `<div class="ai-top"><b>Kronos ideas</b><span>${esc(a.forecast.summary?.bias || '')} · ${a.data_mode === 'EOD' ? 'EOD close ' + shortDate(a.data_asof) : 'Live'} · ${aiAge(a)}</span>${open}</div>
     ${isStale(S.symbol, a) && !jobInfo()?.mine ? `<div class="ai-old">Built on the ${esc(shortDate(forecastAnchor(a)))} close, ${sessionsBetween(forecastAnchor(a), sessionDate())} session(s) old. Strikes may no longer fit. <button data-ai="refresh">Update to today</button></div>` : ''}${jobBox(true)}
     ${a.ideas.length ? a.ideas.map((c, i) => { const [label, cls] = STATUS[c.status] || ['—', '']; return `<div class="idea">
-      <div><b>${esc(c.name)}</b> <span class="st ${cls}" title="${esc(c.reasons.join(' · ') || 'Passes all checks')}">${label}</span>
+      <div><b>${esc(c.name)}</b>${c.oi ? `<small title="${esc((c.oi.notes || []).join(' · '))}"> · OI: ${esc(c.oi.bias)}</small>` : ''} <span class="st ${cls}" title="${esc(c.reasons.join(' · ') || 'Passes all checks')}">${label}</span>
       <small>${c.legs.map(l => `${l.qty > 0 ? 'B' : 'S'}${Math.abs(l.qty) > 1 ? Math.abs(l.qty) : ''} ${num(l.strike, l.strike % 1 ? 1 : 0)}${l.type}`).join(' · ')} · ${esc(shortDate(c.expiry))}</small>
       <small>${c.entry_credit >= 0 ? 'Cr' : 'Dr'} ${inr(Math.abs(c.entry_credit))} · max loss ${inr(c.max_loss)} · ${num(c.scenario_profit_pct, 0)}% paths profit</small></div>
       <button data-ai="load" data-i="${i}">Load</button></div>`; }).join('') : `<p class="muted">${esc(a.reason || 'No liquid hedged structure found.')}</p>`}`;
@@ -586,6 +587,20 @@ function loadIdea(idea) {
 }
 
 // forecast view
+function oiContextHtml(c) {
+  if (!c) return '<p class="note">Saved idea has no OI analysis. Refresh the forecast.</p>';
+  const roll = c.rollover || {}, f = c.futures || {};
+  const windows = Object.entries(c.windows || {}).map(([m,w]) => `${m}m: ${w.ready ? w.covered_minutes + 'm recorded' : 'not ready'}`).join(' / ');
+  return `<details><summary>OI context: ${esc(c.bias)} - ${(c.expiries || []).map(esc).join(' + ')}</summary>
+    <table class="oi-table"><tbody>
+    <tr><th>Data time</th><td>${esc(c.data_time || 'Unavailable')} - ${esc(c.mode || '')}</td></tr>
+    <tr><th>Price and OI</th><td>${(c.evidence || []).map(esc).join(' ') || 'No clear agreement.'}</td></tr>
+    <tr><th>Next-month share</th><td>${num(roll.next_month_share_pct)}% / daily shift ${num(roll.share_change_pp)} percentage points${roll.possible_roll ? ' - possible rollover' : ''}</td></tr>
+    <tr><th>Futures history</th><td>${f.ready ? esc(f.activity) + ' / ' + esc(f.asof) : 'Unavailable'}</td></tr>
+    <tr><th>Recording windows</th><td>${esc(windows || 'Unavailable')}</td></tr>
+    <tr><th>Limits</th><td>${[...(c.issues || []), ...(c.notes || [])].map(esc).join('<br>')}</td></tr>
+    </tbody></table></details>`;
+}
 function renderAIPane() {
   const d = S.aiData[S.symbol], a = d?.analysis, head = $('ai-head');
   if (!d && !S.aiError) { head.innerHTML = '<p class="empty">Loading saved Kronos forecast…</p>'; $('ai-chart').innerHTML = ''; $('ai-detail').innerHTML = ''; return; }
@@ -603,14 +618,14 @@ function renderAIPane() {
     <div><small>Price now vs forecast base</small><strong id="ai-now">${nowText(spot, since)}</strong></div></div>
     <div class="ai-bar"><span>Based on ${a.data_mode === 'EOD' ? 'end-of-day close of <b>' + shortDate(a.data_asof) + '</b>' : 'live prices'} (₹${num(f.last_close)}) · saved ${esc(aiAge(a))} · ${esc(String(s.sample_count || ''))} sampled paths</span>
     ${S.job ? '' : '<button class="primary" data-ai="refresh">Refresh forecast</button>'}</div>${jobBox()}
-    <div id="ai-guide">${stale ? '' : guideHtml(a, spot, overlay)}</div>`;
+    <div id="ai-guide">${stale ? '' : guideHtml(a, spot, overlay)}</div>${oiContextHtml(a.oi_context)}`;
   drawForecast($('ai-chart'), a, spot, overlay);
   $('ai-detail').innerHTML = a.ideas.length ? `<table class="ptable"><thead><tr><th>Kronos strategy</th><th>Legs · ${esc(shortDate(a.ideas[0].expiry))} expiry</th><th class="n">Credit / debit</th><th class="n">Max profit</th><th class="n">Max loss</th><th class="n">Profitable paths</th><th class="n">IV-stressed avg</th><th>Stop (stock)</th><th>Checks</th><th></th></tr></thead><tbody>${a.ideas.map((c, i) => { const [label, cls] = STATUS[c.status] || ['—', '']; const st = c.underlying_stop; return `<tr>
       <td><b>${esc(c.name)}</b><br><small>${esc(c.bias || '')}</small></td><td class="legtxt">${c.legs.map(l => `${l.qty > 0 ? 'Buy' : 'Sell'} ${Math.abs(l.qty)} ${num(l.strike, l.strike % 1 ? 1 : 0)} ${l.type} @<span data-live="${l.type}|${l.strike}" data-exp="${esc(c.expiry)}">${num(l.ltp)}</span>`).join('<br>')}</td>
       <td class="n">${c.entry_credit >= 0 ? 'Cr' : 'Dr'} ${inr(Math.abs(c.entry_credit))}</td><td class="n up">${c.max_profit == null ? 'Uncapped' : inr(c.max_profit)}</td><td class="n down">${inr(c.max_loss)}</td>
       <td class="n">${num(c.scenario_profit_pct, 0)}%</td><td class="n ${tone(c.stressed_mean_net)}">${sinr(c.stressed_mean_net)}</td>
       <td>${st ? [st.lower != null ? '≤ ' + num(st.lower) : '', st.upper != null ? '≥ ' + num(st.upper) : ''].filter(Boolean).join(' / ') : '—'}</td>
-      <td><span class="st ${cls}">${label}</span>${c.reasons.length ? `<div class="legtxt">${c.reasons.map(esc).join('<br>')}</div>` : ''}</td>
+      <td>${c.oi ? `<div class="legtxt">OI: ${esc(c.oi.bias)} · score ${num(c.oi.score_adjustment, 3)}<br>${(c.oi.notes || []).map(esc).join('<br>')}</div>` : ''}<span class="st ${cls}">${label}</span>${c.reasons.length ? `<div class="legtxt">${c.reasons.map(esc).join('<br>')}</div>` : ''}</td>
       <td><button class="primary small" data-ai="load" data-i="${i}">Load in builder</button></td></tr>`; }).join('')}</tbody></table>
     <p class="note">Prices shown are from when Kronos ran; "Load in builder" re-prices every leg live. Profitable paths are model scenarios, not a measured win rate.</p>` : `<p class="empty">${esc(a.reason || 'No liquid hedged structure found.')}</p>`;
 }
@@ -910,14 +925,15 @@ document.addEventListener('click', async e => {
 // ---------- views ----------
 function view(name) {
   S.view = name;
-  $('view-chain').hidden = name === 'pos' || name === 'ready'; $('view-pos').hidden = name !== 'pos'; $('view-ready').hidden = name !== 'ready';
+  $('view-chain').hidden = name === 'pos' || name === 'ready' || name === 'oi'; $('view-pos').hidden = name !== 'pos'; $('view-ready').hidden = name !== 'ready'; $('view-oi').hidden = name !== 'oi';
   document.querySelector('.chain-pane').hidden = name !== 'chain'; $('ai-pane').hidden = name !== 'ai';
-  for (const [id, v] of [['tab-chain', 'chain'], ['tab-ai', 'ai'], ['tab-ready', 'ready'], ['tab-pos', 'pos']]) $(id).setAttribute('aria-selected', name === v);
+  for (const [id, v] of [['tab-chain', 'chain'], ['tab-ai', 'ai'], ['tab-ready', 'ready'], ['tab-oi', 'oi'], ['tab-pos', 'pos']]) $(id).setAttribute('aria-selected', name === v);
   if (name === 'ready') pollReady();
+  if (name === 'oi') window.openOI?.();
   if (name === 'pos') pollPositions();
-  else if (name !== 'ready') { if (S.legs.length) renderSummary(); if (name === 'ai') renderAIPane(); else setTimeout(centreATM); }
+  else if (name !== 'ready' && name !== 'oi') { if (S.legs.length) renderSummary(); if (name === 'ai') renderAIPane(); else setTimeout(centreATM); }
 }
-$('tab-chain').onclick = () => view('chain'); $('tab-ai').onclick = () => view('ai'); $('tab-pos').onclick = () => view('pos'); $('tab-ready').onclick = () => view('ready');
+$('tab-chain').onclick = () => view('chain'); $('tab-ai').onclick = () => view('ai'); $('tab-pos').onclick = () => view('pos'); $('tab-ready').onclick = () => view('ready'); $('tab-oi').onclick = () => view('oi');
 
 // ---------- ready to enter: scanner pattern + Kronos agreement across all F&O stocks ----------
 const READY = {ripe: ['Ready', 'Pattern at its trigger and Kronos agrees'], watch: ['Watch', 'Close, but one check is missing'], wait: ['Not yet', 'Waiting for price or a forecast'], skip: ['Skipped', 'Kronos disagrees, price ran past the entry or the stop broke']};
@@ -1188,7 +1204,7 @@ new ResizeObserver(() => { cancelAnimationFrame(redraw); redraw = requestAnimati
 new ResizeObserver(() => { if (S.view === 'ai') { cancelAnimationFrame(redraw); redraw = requestAnimationFrame(renderAIPane); } }).observe($('ai-chart'));
 
 // ---------- start ----------
-const DESK_VERSION = '2.5.0';   // must match /api/health; a mismatch means the app window is running older code
+const DESK_VERSION = '2.6.0';   // must match /api/health; a mismatch means the app window is running older code
 function restartBanner() {
   const el = document.createElement('div'); el.className = 'restart';
   el.innerHTML = '<b>Restart needed.</b> The app window is running an older version, so some features will not work. Close the black "Pattern Scanner - SAI Research" window and run <b>Run Pattern Scanners.bat</b> again.';

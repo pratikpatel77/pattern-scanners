@@ -15,6 +15,7 @@ from .options_sources import ContextSources
 from .options_market import LiveMarket, clock, market_open, number
 from .options_math import analyse_structure, book_fill, candidates, entry, fee, fill, charges, underlying_stop, reward_reasons, REWARD_REASONS
 from .settings import Settings
+from .options_oi import collect_context, apply_context, UNAVAILABLE, CONFLICT, MIXED
 
 LEGACY=('capital','risk_pct','portfolio_pct')  # paper capital and loss budgets were removed; old saved values are ignored
 DEFAULTS=dict(slippage=.01,
@@ -43,7 +44,7 @@ def preferences(values):
 
 # Warnings a research paper trade may acknowledge. Never liquidity or price-age failures.
 ADVISORY=('Stressed net profit below minimum','Stressed net return on maximum loss below minimum','Negative average outcome under IV stress','Too few profitable model scenarios',
-          'Credit too small for the spreads','IV percentile needs a dated source','Event calendar needs review')
+          'Credit too small for the spreads','IV percentile needs a dated source','Event calendar needs review',UNAVAILABLE,CONFLICT,MIXED)
 # Entry timing: the idea stays visible for review, but entry waits for fresh live data.
 TIMING=('Chain preview: refresh leg depth before entry','EOD analysis: run a live forecast before paper entry',
         'Underlying price is stale or market is closed','Option prices unavailable: market closed or a selected strike has no two-sided book',
@@ -73,6 +74,9 @@ class OptionsDesk:
         self.action_lock=threading.RLock()
         self.event_cache=None
         self.event_error_until=0.
+
+    def oi_context(self, symbol, spot, mode='Live', asof=None):
+        return collect_context(getattr(self.service, 'sensibull', None), symbol, spot, mode, asof)
 
     def bootstrap(self):
         stored=self.journal.settings()
@@ -167,6 +171,8 @@ class OptionsDesk:
             a['events']=self.events(a['symbol'],a['forecast_end'])
             if a.get('iv'): a['ivp']=self.iv_percentile(a['symbol'],a['iv'])
         for c in a.get('candidates',[]):
+            if not c.get('oi'):
+                c.setdefault('reasons',[]).append('Saved idea has no OI analysis. Analyse this stock again')
             if c.get('calculation_version') != 2:
                 c.setdefault('reasons',[]).append('Saved calculation is outdated. Analyse this stock again')
             if a.get('forecast'):
@@ -221,6 +227,8 @@ class OptionsDesk:
                 issues.append('Option prices unavailable: market closed or a selected strike has no two-sided book')
             ivp=self.iv_percentile(a['symbol'],a['iv']) if a.get('iv') else a['ivp']
             plan=analyse_structure(c['name'],c['bias'],fresh,a['forecast'],prefs,ivp['value'])
+            oi=self.oi_context(a['symbol'],number(spot['ltp']),a.get('data_mode','Live'),a.get('data_asof'))
+            apply_context(plan,oi)
             event=self.events(a['symbol'],a['forecast_end'])
             if not event['checked']: issues.append('Event calendar needs review')
             if event['events'] and prefs['avoid_events']: issues.append('Scheduled event during trade period')
@@ -238,7 +246,7 @@ class OptionsDesk:
             draft_key='draft-'+hashlib.sha256(f"{root}|{request.get('candidate')}".encode()).hexdigest()[:24]
             saved=self.journal.save_analysis({**{k:v for k,v in a.items() if k!='forecast'},'parent_analysis':root,'is_draft':True,
                 'forecast_created':a.get('forecast_created',a['created']),'candidates':[plan],
-                'spot':number(spot['ltp']),'quote_time':spot['quote_time'],'events':event,'ivp':ivp,
+                'spot':number(spot['ltp']),'quote_time':spot['quote_time'],'events':event,'ivp':ivp,'oi_context':oi,
                 'status':'Skip' if plan['status']=='Skip' else 'Review'},key=draft_key)
             return dict(analysis=saved['id'],plan=plan,spot=saved['spot'],events=event,ivp=ivp)
 
@@ -433,6 +441,7 @@ class OptionsDesk:
         if atm['iv']<=0: raise ValueError('FYERS did not provide ATM IV.')
         ivp=self.iv_percentile(symbol,atm['iv'])
         events=self.events(symbol,end)
+        oi=self.oi_context(symbol,number(spot['ltp']),base_value.get('data_mode','Live'),base_value.get('data_asof'))
         floors=[min(r['low'] for r in p) for p in result['paths']]
         ceilings=[max(r['high'] for r in p) for p in result['paths']]
         lower,upper=float(np.quantile(floors,.1)),float(np.quantile(ceilings,.9))
@@ -441,6 +450,7 @@ class OptionsDesk:
         for name,bias,legs in candidates(chain,result['last_close'],lower,upper):
             try:
                 plan=analyse_structure(name,bias,legs,result,prefs,ivp['value'])
+                apply_context(plan,oi)
                 if base_value.get('data_mode')=='EOD': plan['reasons'].append('EOD analysis: run a live forecast before paper entry')
                 if not events['checked']: plan['reasons'].append('Event calendar needs review')
                 if events['events'] and prefs['avoid_events']: plan['reasons'].append('Scheduled event during trade period')
@@ -458,7 +468,7 @@ class OptionsDesk:
             if c['status']!='Skip': c['reasons'].append('Chain preview: refresh leg depth before entry')
         value=dict(symbol=symbol,data_mode=base_value.get('data_mode','Live'),data_asof=base_value.get('data_asof'),status='Review' if any(c['status']!='Skip' for c in retained) else 'Skip',
             reason='Compare the plans below' if retained else 'No liquid, useful hedged structure found',
-            prefs=prefs,forecast=result,forecast_id=forecast_id,spot=number(spot['ltp']),iv=atm['iv'],ivp=ivp,events=events,
+            prefs=prefs,forecast=result,forecast_id=forecast_id,spot=number(spot['ltp']),iv=atm['iv'],ivp=ivp,events=events,oi_context=oi,
             patterns=[s.label for s in signals],lower=lower,upper=upper,candidates=retained,
             quote_time=spot['quote_time'],forecast_created=forecast_created,forecast_end=end,expiry=atm['expiry'])
         return self.journal.save_analysis(value)
@@ -497,14 +507,16 @@ class OptionsDesk:
             events=self.events(a['symbol'],a['forecast_end'])
             if (not events['checked'] and not research) or (events['events'] and prefs['avoid_events']):
                 raise ValueError('Event check failed. Refresh the analysis or review the calendar.')
+            oi=self.oi_context(a['symbol'],number(spot['ltp']))
             legs=self._fresh_legs(c['legs'],prefs)
             plan=analyse_structure(c['name'],c['bias'],legs,a['forecast'],prefs,a['ivp']['value'])
+            apply_context(plan,oi)
             if not events['checked']: plan['reasons'].append('Event calendar needs review')
             checks=self.entry_checks(plan)
             if checks['blockers'] or (checks['warnings'] and not research):
                 raise ValueError('Fresh entry checks: '+', '.join(checks['blockers']+checks['warnings']))
             for l in legs: l['entry_fill']=fill(l,l['qty'])  # buy at ask, sell at bid
-            payload=dict(symbol=a['symbol'],plan=plan,legs=legs,prefs=prefs,forecast_id=a.get('forecast_id'),
+            payload=dict(symbol=a['symbol'],plan=plan,oi_context=oi,legs=legs,prefs=prefs,forecast_id=a.get('forecast_id'),
                 entry_spot=spot['ltp'],entry_time=clock().isoformat(),exit_by=plan['exit_by'],
                 entry_credit=plan['entry_credit'],entry_charges=plan['entry_charges'],
                 research=bool(checks['warnings']),accepted_warnings=checks['warnings'],

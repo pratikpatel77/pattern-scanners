@@ -1,0 +1,338 @@
+[
+  {
+    "symbol": "SBIN",
+    "expiries": [
+      "2026-11-23",
+      "2026-12-29"
+    ],
+    "data_time": "2026-11-06T14:00:00+00:00",
+    "call_oi": 56820000,
+    "put_oi": 45123000,
+    "pcr": 0.7941393875395988,
+    "pcr_change": 0.059982195250918635,
+    "context": {
+      "version": 1,
+      "available": true,
+      "source": "Sensibull",
+      "mode": "EOD",
+      "asof": "2026-11-06",
+      "data_time": "2026-11-06T14:00:00+00:00",
+      "observed_at": "2026-11-07T12:29:56.457160+05:30",
+      "expiries": [
+        "2026-11-23",
+        "2026-12-29"
+      ],
+      "bias": "bullish",
+      "strength": 1.0,
+      "mixed": false,
+      "evidence": [
+        "Daily price and combined PCR change agree.",
+        "Price up / futures OI up (daily context)."
+      ],
+      "notes": [
+        "OI includes buyers and sellers; these are context clues, not proof of option writing.",
+        "Front-month OI fell while next-month OI rose: possible rollover, not proof of new direction.",
+        "Full intraday recording windows are not yet available."
+      ],
+      "issues": [],
+      "spot": 1018.5,
+      "pcr": 0.7941393875395988,
+      "pcr_change": 0.059982195250918635,
+      "by_expiry": {
+        "2026-11-23": {
+          "call_oi": 53326500,
+          "put_oi": 42522750,
+          "pcr": 0.7974037298528874,
+          "pcr_change": 0.0631366414904011,
+          "call_change": -4772250,
+          "put_change": -137250,
+          "direction": 1,
+          "support": {
+            "strike": 1000.0,
+            "oi": 4763250,
+            "day_change": 158250
+          },
+          "resistance": {
+            "strike": 1050.0,
+            "oi": 5402250,
+            "day_change": 213750
+          }
+        },
+        "2026-12-29": {
+          "call_oi": 3493500,
+          "put_oi": 2600250,
+          "pcr": 0.744310863031344,
+          "pcr_change": 0.01261766476795756,
+          "call_change": 902250,
+          "put_change": 704250,
+          "direction": 0,
+          "support": {
+            "strike": 1000.0,
+            "oi": 591000,
+            "day_change": 330000
+          },
+          "resistance": {
+            "strike": 1050.0,
+            "oi": 544500,
+            "day_change": 207750
+          }
+        }
+      },
+      "levels": {
+        "support": {
+          "strike": 1000.0,
+          "oi": 5354250,
+          "day_change": 488250
+        },
+        "resistance": {
+          "strike": 1050.0,
+          "oi": 5946750,
+          "day_change": 421500
+        }
+      },
+      "rollover": {
+        "note": "Next-month share is positioning, not a measured trader rollover rate.",
+        "next_month_share_pct": 5.977605132279804,
+        "front_change": -4909500,
+        "next_change": 1606500,
+        "combined_change": -3303000,
+        "share_change_pp": 1.7140226683381812,
+        "possible_roll": true
+      },
+      "windows": {
+        "5": {
+          "symbol": "SBIN",
+          "ready": false,
+          "minutes": 5,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "15": {
+          "symbol": "SBIN",
+          "ready": false,
+          "minutes": 15,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "30": {
+          "symbol": "SBIN",
+          "ready": false,
+          "minutes": 30,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "60": {
+          "symbol": "SBIN",
+          "ready": false,
+          "minutes": 60,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "180": {
+          "symbol": "SBIN",
+          "ready": false,
+          "minutes": 180,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        }
+      },
+      "history": {
+        "ready": true,
+        "asof": "2026-11-06",
+        "observations": 8,
+        "price_change_pct": 1.2023052464228856,
+        "expiries": [
+          "2026-11-23",
+          "2026-12-29"
+        ],
+        "source": "Sensibull daily history",
+        "direction": 0,
+        "pcr": 0.7994672152766787,
+        "pcr_change": 0.1993993114878595,
+        "from_date": "2026-11-03"
+      },
+      "futures": {
+        "ready": true,
+        "asof": "2026-11-06",
+        "observations": 8,
+        "price_change_pct": 1.2023052464228856,
+        "expiries": [
+          "2026-11-23",
+          "2026-12-29"
+        ],
+        "source": "Sensibull daily history",
+        "direction": 1,
+        "oi_change_pct": 0.587366396789335,
+        "activity": "Price up / futures OI up"
+      },
+      "rule": "Heuristic; OI changes score by at most 0.08. No change to model probabilities or payoffs."
+    }
+  },
+  {
+    "symbol": "MPHASIS",
+    "expiries": [
+      "2026-11-23",
+      "2026-12-29"
+    ],
+    "data_time": "2026-11-06T14:00:00+00:00",
+    "call_oi": 3346475,
+    "put_oi": 1518825,
+    "pcr": 0.45385816418769004,
+    "pcr_change": -0.399587156347106,
+    "context": {
+      "version": 1,
+      "available": true,
+      "source": "Sensibull",
+      "mode": "EOD",
+      "asof": "2026-11-06",
+      "data_time": "2026-11-06T14:00:00+00:00",
+      "observed_at": "2026-11-07T12:30:02.442821+05:30",
+      "expiries": [
+        "2026-11-23",
+        "2026-12-29"
+      ],
+      "bias": "neutral",
+      "strength": 0.0,
+      "mixed": false,
+      "evidence": [
+        "Price up / futures OI up (daily context)."
+      ],
+      "notes": [
+        "OI includes buyers and sellers; these are context clues, not proof of option writing.",
+        "Full intraday recording windows are not yet available."
+      ],
+      "issues": [],
+      "spot": 2520.0,
+      "pcr": 0.45385816418769004,
+      "pcr_change": -0.399587156347106,
+      "by_expiry": {
+        "2026-11-23": {
+          "call_oi": 3331625,
+          "put_oi": 1497100,
+          "pcr": 0.44936029715229053,
+          "pcr_change": -0.4029632828821329,
+          "call_change": 1733875,
+          "put_change": 135300,
+          "direction": 0,
+          "support": {
+            "strike": 2500.0,
+            "oi": 241175,
+            "day_change": 35200
+          },
+          "resistance": {
+            "strike": 2600.0,
+            "oi": 568150,
+            "day_change": 118250
+          }
+        },
+        "2026-12-29": {
+          "call_oi": 14850,
+          "put_oi": 21725,
+          "pcr": 1.462962962962963,
+          "pcr_change": 0.337962962962963,
+          "call_change": 8250,
+          "put_change": 14300,
+          "direction": 1,
+          "support": {
+            "strike": 2500.0,
+            "oi": 14575,
+            "day_change": 12925
+          },
+          "resistance": {
+            "strike": 2600.0,
+            "oi": 1100,
+            "day_change": 825
+          }
+        }
+      },
+      "levels": {
+        "support": {
+          "strike": 2500.0,
+          "oi": 255750,
+          "day_change": 48125
+        },
+        "resistance": {
+          "strike": 2600.0,
+          "oi": 569250,
+          "day_change": 119075
+        }
+      },
+      "rollover": {
+        "note": "Next-month share is positioning, not a measured trader rollover rate.",
+        "next_month_share_pct": 0.7517522043861633,
+        "front_change": 1869175,
+        "next_change": 22550,
+        "combined_change": 1891725,
+        "share_change_pp": 0.2800977144203814,
+        "possible_roll": false
+      },
+      "windows": {
+        "5": {
+          "symbol": "MPHASIS",
+          "ready": false,
+          "minutes": 5,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "15": {
+          "symbol": "MPHASIS",
+          "ready": false,
+          "minutes": 15,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "30": {
+          "symbol": "MPHASIS",
+          "ready": false,
+          "minutes": 30,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "60": {
+          "symbol": "MPHASIS",
+          "ready": false,
+          "minutes": 60,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        },
+        "180": {
+          "symbol": "MPHASIS",
+          "ready": false,
+          "minutes": 180,
+          "snapshots": 1,
+          "note": "A full matching window of recorded exchange data is not available."
+        }
+      },
+      "history": {
+        "ready": true,
+        "asof": "2026-11-06",
+        "observations": 8,
+        "price_change_pct": 0.3984063745019917,
+        "expiries": [
+          "2026-11-23",
+          "2026-12-29"
+        ],
+        "source": "Sensibull daily history",
+        "direction": 0,
+        "pcr": 0.4537463029904699,
+        "pcr_change": -0.6844384885058507,
+        "from_date": "2026-11-03"
+      },
+      "futures": {
+        "ready": true,
+        "asof": "2026-11-06",
+        "observations": 8,
+        "price_change_pct": 0.3984063745019917,
+        "expiries": [
+          "2026-11-23",
+          "2026-12-29"
+        ],
+        "source": "Sensibull daily history",
+        "direction": 1,
+        "oi_change_pct": 5.469208211143695,
+        "activity": "Price up / futures OI up"
+      },
+      "rule": "Heuristic; OI changes score by at most 0.08. No change to model probabilities or payoffs."
+    }
+  }
+]
