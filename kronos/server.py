@@ -58,7 +58,7 @@ def create_server(service,port=8765):
             query=parse_qs(route.query)
             try:
                 if route.path=='/api/health':
-                    self.send(200,{'app':'kronos-research','version':'2.5.0'}); return
+                    self.send(200,{'app':'kronos-research','version':'2.6.0'}); return
                 if route.path=='/api/bootstrap':
                     self.send(200,{**service.bootstrap(),'token':token}); return
                 if route.path=='/api/shortlist':
@@ -93,6 +93,17 @@ def create_server(service,port=8765):
                     self.send(200,service.desk.context(query.get('symbol',[''])[0])); return
                 if route.path=='/api/desk/ltp':
                     self.send(200,service.desk.ltp(query.get('symbols',[''])[0].split(','))); return
+                if route.path=='/api/sensibull/status':
+                    self.send(200,service.sensibull.status()); return
+                if route.path=='/api/sensibull/oi':
+                    sb=service.sensibull
+                    snap=sb.live(query.get('symbol',[''])[0],force=query.get('fresh')==['1'])
+                    self.send(200,dict(snap,changes=sb.changes(snap['symbol'],query.get('minutes',['30'])[0],latest=snap),strikes=[dict(strike=float(k),call_oi=v[0],put_oi=v[1],prev_call_oi=v[2],prev_put_oi=v[3])
+                                                     for k,v in sorted(snap['strikes'].items(),key=lambda i:float(i[0]))])); return
+                if route.path=='/api/sensibull/changes':
+                    self.send(200,service.sensibull.changes(query.get('symbol',[''])[0],query.get('minutes',['30'])[0])); return
+                if route.path=='/api/sensibull/series':
+                    self.send(200,service.sensibull.series(query.get('symbol',[''])[0],query.get('kind',['oi'])[0])); return
                 if route.path=='/api/options':
                     self.send(200,service.options.bootstrap()); return
                 if route.path=='/api/options/universe':
@@ -184,6 +195,8 @@ def create_server(service,port=8765):
                     self.send(202,service.submit(request))
                 elif self.path=='/api/watch':
                     self.send(200,service.monitor.configure(request))
+                elif self.path=='/api/sensibull/watch':
+                    self.send(200,{'watch':service.sensibull.set_watch(request.get('symbols') or [])})
                 elif self.path=='/api/options/scan':
                     self.send(202,service.options.submit(request))
                 elif self.path=='/api/options/settings':
@@ -253,6 +266,7 @@ def main(argv=None):
     service.monitor.start()
     service.watch.start()
     service.desk.start_board_watch()
+    service.sensibull.start()
     service.warm_fallback()
     print(f'Pattern Scanner + SAI Research: {url}\nKeep this window open. Press Ctrl+C to stop.',flush=True)
     if not args.no_open: webbrowser.open(url)

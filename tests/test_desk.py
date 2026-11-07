@@ -161,7 +161,7 @@ class AITests(unittest.TestCase):
                             history=[dict(date=f'2026-10-{i:02d}', close=990. + i) for i in range(1, 31)],
                             forecast=[dict(date='2026-11-02', median=1005., q10=990., q90=1015.)], paths=[])
             legs = [dict(strike=980., type='PE', qty=-1, ltp=8.), dict(strike=960., type='PE', qty=1, ltp=4.)]
-            idea = dict(id='a', calculation_version=2, name='Put credit spread', bias='bullish', status='Paper candidate', score=5, expiry='2026-11-23',
+            idea = dict(id='a', oi=dict(version=1,bias='neutral'), calculation_version=2, name='Put credit spread', bias='bullish', status='Paper candidate', score=5, expiry='2026-11-23',
                         entry_credit=400., max_loss=1600., legs=legs, reasons=['Chain preview: refresh leg depth before entry'],
                         underlying_stop=dict(lower=985., upper=None))
             journal.save_analysis(dict(symbol='TEST', forecast=forecast, candidates=[idea], data_mode='EOD', lower=980., upper=1030.))

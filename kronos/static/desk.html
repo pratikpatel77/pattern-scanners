@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Options Desk</title><link rel="stylesheet" href="/desk.css"><script defer src="/desk-math.js"></script><script defer src="/desk.js"></script></head>
+<title>Options Desk</title><link rel="stylesheet" href="/desk.css"><script defer src="/desk-math.js"></script><script defer src="/desk.js"></script><script defer src="/desk-oi.js"></script></head>
 <body>
 <header class="top">
   <div class="search">
@@ -31,6 +31,7 @@
     <button id="tab-chain" role="tab" aria-selected="true">Chain &amp; builder</button>
     <button id="tab-ai" role="tab" aria-selected="false">AI forecast</button>
     <button id="tab-ready" role="tab" aria-selected="false" title="F&amp;O stocks where a scanner pattern and Kronos agree">Ready to enter <b id="ready-count"></b></button>
+    <button id="tab-oi" role="tab" aria-selected="false" hidden title="Open interest from Sensibull, recorded locally">OI</button>
     <button id="tab-pos" role="tab" aria-selected="false">Positions <b id="pos-count"></b></button>
   </div>
   <label>Expiry <select id="expiry"></select></label>
@@ -89,6 +90,18 @@
   <div id="ready-events" class="ready-events" hidden></div>
   <div id="ready-list"></div>
   <p class="note">Price-level and forecast-agreement checks, not recommendations or measured win rates. Patterns confirm on a closing basis; Kronos paths are sampled scenarios. Nothing here runs the model: stocks without a recent forecast stay on Watch until you open them and run one. Open a row to see its chain, event dates and ready-made strategies.</p>
+</main>
+
+<main id="view-oi" class="positions oi" hidden>
+  <div class="pos-head"><h2 id="oi-title">Open interest</h2><span id="oi-meta" class="ready-meta"></span></div>
+  <div class="oi-bar">
+    <div id="oi-windows" class="seg" role="group" aria-label="OI change window"></div>
+    <button id="oi-refresh" class="ghost">Refresh now</button>
+  </div>
+  <div id="oi-summary" class="oi-summary"></div>
+  <div id="oi-body"></div>
+  <h2>Day-by-day history</h2>
+  <div id="oi-history"></div>
 </main>
 
 <main id="view-pos" class="positions" hidden>

@@ -233,7 +233,7 @@ class FastDesk:
         from .options_math import underlying_stop
         ideas = []
         for c in options.top_ideas(a.get('candidates', [])):
-            if c.get('calculation_version')!=2:
+            if c.get('calculation_version')!=2 or not c.get('oi'):
                 c={**c,'status':'Skip','reasons':list(c.get('reasons',[]))+['Saved calculation is outdated. Analyse this stock again']}
             try:
                 stop = c.get('underlying_stop') or underlying_stop(c['bias'], c['legs'], f)
@@ -243,14 +243,14 @@ class FastDesk:
                               expiry=c.get('expiry'), entry_credit=c.get('entry_credit'), max_loss=c.get('max_loss'),
                               max_profit=c.get('max_profit'), breakevens=c.get('breakevens', []),
                               scenario_profit_pct=c.get('scenario_profit_pct'), stressed_mean_net=c.get('stressed_mean_net'),
-                              short_touch_pct=c.get('short_touch_pct'), underlying_stop=stop, exit_by=c.get('exit_by'),
+                              short_touch_pct=c.get('short_touch_pct'), underlying_stop=stop, exit_by=c.get('exit_by'), oi=c.get('oi'),
                               reasons=[r for r in c.get('reasons', []) if not r.startswith('Chain preview')],
                               legs=[dict(strike=l['strike'], type=l['type'], qty=l['qty'], ltp=l.get('ltp')) for l in c['legs']]))
         return dict(symbol=symbol, job=job, analysis=dict(
             id=a['id'], created=a.get('created'), forecast_created=a.get('forecast_created'), data_mode=a.get('data_mode'),
             data_asof=a.get('data_asof'), spot=a.get('spot'), lower=a.get('lower'), upper=a.get('upper'),
             forecast_end=a.get('forecast_end'), expiry=a.get('expiry'), status=a.get('status'), reason=a.get('reason'),
-            patterns=a.get('patterns', []), ideas=ideas,
+            patterns=a.get('patterns', []), ideas=ideas, oi_context=a.get('oi_context'),
             forecast=dict(asof=f.get('asof'), last_close=f.get('last_close'), summary=f.get('summary'),
                           history=[dict(date=r['date'], close=r['close']) for r in (f.get('history') or [])[-60:]],
                           rows=[dict(date=r['date'], median=r['median'], q10=r['q10'], q90=r['q90'],

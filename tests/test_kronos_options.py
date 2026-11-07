@@ -250,6 +250,8 @@ class DefinedgeFallbackTests(unittest.TestCase):
 class JournalTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name)/'db.sqlite3');self.j=OptionsJournal(self.store)
+        oi_patch=patch.object(OptionsDesk,'oi_context',return_value=dict(available=True,bias='neutral',by_expiry={}))
+        oi_patch.start();self.addCleanup(oi_patch.stop)
     def tearDown(self):self.tmp.cleanup()
 
     def test_atomic_risk_cap_duplicate_and_persistence(self):
@@ -305,6 +307,8 @@ class JournalTests(unittest.TestCase):
               patch.object(desk,'events',return_value=dict(checked=False,events=[],coverage='Missing'))):
             result=desk.analyse('TEST',preferences({}))
         self.assertGreater(len(result['candidates']),0)
+        self.assertIn('oi_context',result)
+        self.assertTrue(all('oi' in c for c in result['candidates']))
         self.assertEqual(len(self.j.forecasts()),1)
         self.assertTrue(all('Event calendar needs review' in c['reasons'] for c in result['candidates']))
         # Unknown context makes ideas research-only (visible, acknowledgement needed), never a clean pass.
@@ -415,6 +419,17 @@ class JournalTests(unittest.TestCase):
         desk=OptionsDesk(SimpleNamespace(store=self.store),market)
         desk.events=Mock(return_value=dict(checked=True,events=[]))
         return desk,a,chain
+
+    def test_oi_is_rechecked_on_edit_and_paper_entry(self):
+        desk,a,chain=self.manual_desk()
+        context=dict(available=False,bias='unavailable',issues=['Test stale OI'])
+        with patch.object(desk,'oi_context',return_value=context):
+            result=desk.reprice(dict(analysis=a['id'],candidate='original',strikes=[970,950]))
+            self.assertEqual(result['plan']['oi']['bias'],'unavailable')
+            self.assertEqual(self.j.analysis(result['analysis'])['oi_context'],context)
+            with self.assertRaisesRegex(ValueError,'OI context'):
+                desk.open_paper(dict(analysis=a['id'],candidate='original'))
+            self.assertEqual(self.j.paper(),[])
 
     def test_edited_strikes_use_fresh_ltp_and_persist_original(self):
         desk,a,chain=self.manual_desk()

@@ -54,6 +54,8 @@ class ResearchService:
         self.desk = FastDesk(self)
         from .position_watch import PositionWatch
         self.watch = PositionWatch(self)
+        from .sensibull import SensibullFeed
+        self.sensibull = SensibullFeed(self.store)
 
     def warm_fallback(self):
         """Log in to Definedge and load its option master in the background, so a FYERS failure fails over instantly."""
@@ -260,6 +262,7 @@ class ResearchService:
         return run
 
     def close(self):
+        self.sensibull.close()
         self.desk.close_board_watch()
         self.watch.close()
         self.refresh.close()
