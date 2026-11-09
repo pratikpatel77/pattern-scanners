@@ -382,6 +382,9 @@ class FastDesk:
         for key in set(self.board_state) - seen:   # the setup left the scanner list
             del self.board_state[key]
 
+    def fno_symbols(self):
+        return self._fno_symbols()
+
     def _fno_symbols(self):
         try:
             universe = set(self.market.universe())
@@ -417,6 +420,7 @@ class FastDesk:
             except ValueError:
                 failed += 1
         today = clock().date()
+        auto = getattr(self.service, 'autoforecast', None)
         entries = evaluate(rows, analyses, quotes, today)
         now = clock().isoformat()
         self._track(entries, now)
@@ -427,7 +431,8 @@ class FastDesk:
                     events=list(self.board_events), tracking_since=self.board_started,
                     tracking=bool(self.board_thread and self.board_thread.is_alive()),
                     stocks=len({r['symbol'] for r in rows}), with_forecast=len(analyses),
-                    quotes_ok=len(quotes), quotes_wanted=len(near), quotes_failed=failed)
+                    quotes_ok=len(quotes), quotes_wanted=len(near), quotes_failed=failed,
+                    auto=auto.status() if auto else None)
 
     def ltp(self, symbols):
         """Last prices for option and stock contracts (open-position MTM). Up to 50 per call."""

@@ -183,6 +183,21 @@ class TrackingTests(unittest.TestCase):
         self.assertEqual(desk.entry_board()['entries'][0]['since'], a)
         self.assertEqual(desk.board_events, [])
 
+    def test_board_reports_the_auto_forecast_status_and_never_asks_for_a_manual_run(self):
+        desk = self.desk()
+        desk.service.autoforecast = SimpleNamespace(status=lambda: dict(running='AAA', queued=2, message='Running Kronos for AAA.'))
+        board = desk.entry_board()
+        self.assertEqual(board['auto']['running'], 'AAA')
+        entry = one([row()], {}, {'AAA': dict(ltp=99.5, fresh=True)})
+        self.assertEqual(entry['verdict'], 'watch')
+        self.assertEqual(entry['reasons'], ['No Kronos forecast yet: the app runs one automatically'])
+        far = one([row(stop=80.)], {}, {'AAA': dict(ltp=92., fresh=True)})
+        self.assertIn('once price is within 2% of the trigger', far['reasons'][0])
+        self.assertNotIn('open the stock', ' '.join(entry['reasons'] + far['reasons']))
+
+    def test_board_without_a_watcher_has_no_auto_status(self):
+        self.assertIsNone(self.desk().entry_board()['auto'])
+
     def test_background_loop_starts_and_stops_with_the_app(self):
         desk = self.desk()
         desk.start_board_watch()

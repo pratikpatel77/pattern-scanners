@@ -966,7 +966,8 @@ function renderReady() {
     `<button data-v="all" aria-pressed="${S.readyVerdict === 'all'}">All <b>${d.entries.length}</b></button>`;
   $('ready-dirs').innerHTML = [['all', 'Both'], ['bullish', '▲ Bullish'], ['bearish', '▼ Bearish']].map(([v, t]) => `<button data-d="${v}" aria-pressed="${S.readyDir === v}">${t}</button>`).join('');
   const age = Math.max(0, Math.round((Date.now() - new Date(d.time)) / 1000));
-  $('ready-meta').textContent = `${d.tracking ? `Tracking since ${clock(d.tracking_since)} while this app runs · ` : ''}${d.stocks} F&O pattern stocks · ${d.with_forecast} with a Kronos forecast · prices ${d.quotes_ok}/${d.quotes_wanted}${d.market_open ? ' live' : ' (market closed: last prices)'}${d.quotes_failed ? ' · some price calls failed' : ''} · updated ${age < 3 ? 'just now' : age + 's ago'}`;
+  const a = d.auto, auto = a ? ` · Kronos auto-forecast: ${a.running ? `running ${a.running}${a.queued > 1 ? ` (+${a.queued - 1} queued)` : ''}` : a.message}` : '';
+  $('ready-meta').textContent = `${d.tracking ? `Tracking since ${clock(d.tracking_since)} while this app runs · ` : ''}${d.stocks} F&O pattern stocks · ${d.with_forecast} with a Kronos forecast · prices ${d.quotes_ok}/${d.quotes_wanted}${d.market_open ? ' live' : ' (market closed: last prices)'}${d.quotes_failed ? ' · some price calls failed' : ''}${auto} · updated ${age < 3 ? 'just now' : age + 's ago'}`;
   renderReadyEvents(d);
   const rows = d.entries.filter(e => (S.readyVerdict === 'all' || e.verdict === S.readyVerdict) && (S.readyDir === 'all' || e.direction === S.readyDir));
   if (!rows.length) {

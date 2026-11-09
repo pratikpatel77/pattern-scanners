@@ -73,16 +73,17 @@ def judge(direction, state, past, kronos, event):
     ready = state in ('near', 'triggered')
     confirmed = bool(kronos and kronos['align'] == 'agree' and kronos['fresh'])
     if not kronos:
-        reasons.append('No Kronos forecast saved yet: open the stock and run one')
+        reasons.append('No Kronos forecast yet: the app runs one automatically' if ready else
+                       f'No Kronos forecast yet: the app runs one automatically once price is within {NEAR_PCT:g}% of the trigger')
     elif kronos['align'] == 'mixed':
         reasons.append('Kronos sees a mixed outlook, so it does not confirm the pattern')
     elif not kronos['fresh']:
         if kronos['age_days'] is not None and kronos['age_days'] > FORECAST_MAX_AGE:
-            reasons.append(f"Kronos forecast is {kronos['age_days']} days old: refresh it")
+            reasons.append(f"Kronos forecast is {kronos['age_days']} days old: refreshing automatically")
         elif kronos['drift_pct'] is not None and abs(kronos['drift_pct'])>FORECAST_DRIFT_PCT:
-            reasons.append(f"Price moved {kronos['drift_pct']:+.1f}% since the forecast: refresh it")
+            reasons.append(f"Price moved {kronos['drift_pct']:+.1f}% since the forecast: refreshing automatically")
         else:
-            reasons.append('Forecast dates are missing, invalid or past the horizon: refresh it')
+            reasons.append('Forecast dates are missing, invalid or past the horizon: refreshing automatically')
     if event:
         reasons.append(f"{event['title']} on {event['date']} falls inside the trade period")
     if ready and confirmed and not event:

@@ -266,6 +266,8 @@ def main(argv=None):
     service.monitor.start()
     service.watch.start()
     service.desk.start_board_watch()
+    service.autoforecast.start()
+    service.refresh.watch()
     service.sensibull.start()
     service.warm_fallback()
     print(f'Pattern Scanner + SAI Research: {url}\nKeep this window open. Press Ctrl+C to stop.',flush=True)

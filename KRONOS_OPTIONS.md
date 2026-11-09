@@ -27,7 +27,7 @@ The first idea opens automatically, including its payoff, strike editor and pape
 
 ## Ready to enter tab (fast desk, `/options`)
 
-A ranked list of **F&O stocks only**, bullish and bearish, where a saved scanner pattern and the newest saved Kronos forecast agree. It never runs the model; it reads what is already saved, plus live prices (FYERS, Definedge fallback). The badge on the tab counts Ready stocks.
+A ranked list of **F&O stocks only**, bullish and bearish, where a saved scanner pattern and the newest saved Kronos forecast agree. It reads the saved scanner patterns, the newest saved Kronos forecast per stock and live prices (FYERS, Definedge fallback). While the app runs it also keeps itself current, with no browser needed: (1) after each 4 pm IST close it rescans all stocks for patterns, F&O stocks first, so the board sees fresh F&O patterns within minutes; (2) it runs Kronos by itself, one stock at a time, for any F&O stock whose pattern is within 2% below its trigger (or up to 3% past it) and whose forecast is missing or out of date (older than 4 days, or price moved over 3%). Each stock is tried at most once every 15 minutes, a failed run (for example an expired login) pauses all automatic runs for 10 minutes, and if you start your own forecast the automatic one is cancelled and stays idle for 90 seconds. Nothing is tracked while the app is closed. The badge on the tab counts Ready stocks.
 
 | Verdict | Needs all of |
 |---|---|

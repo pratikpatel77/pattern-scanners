@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -323,7 +324,9 @@ class OptionsDesk:
                     observed_source=automatic.get('source'),observed_date=automatic.get('date'),
                     date=str(clock().date()),sessions=len(rows))
 
-    def submit(self,request):
+    def submit(self,request,auto=False):
+        """Queue a forecast job. auto=True marks the background watcher's own run: a person's request cancels it."""
+        if not auto: self._yield_to_person()
         prefs=preferences(request.get('settings',self.journal.settings()))
         symbols=self.market.universe()
         chosen=request.get('symbol')
@@ -341,11 +344,22 @@ class OptionsDesk:
             if self.service.active: raise BusyError('A Kronos job is already running.')
             self.journal.save_settings(prefs)
             label=chosen or ('F&O pattern stocks' if scope=='patterns' else 'All F&O stocks')
-            key=self.service.store.create('options',dict(symbol=label,settings=prefs))
+            key=self.service.store.create('options',dict(symbol=label,settings=prefs,**(dict(auto=True) if auto else {})))
             self.service.active=key
+            self.service.auto_job=key if auto else None
             cancel=threading.Event();self.service.events[key]=cancel
             self.service.pool.submit(self._run,key,[chosen] if chosen else symbols,prefs,cancel)
         return self.service.store.get(key)
+
+    def _yield_to_person(self):
+        """A background forecast must never make a person wait: cancel it and take its place (up to 20 s)."""
+        service=self.service
+        key=getattr(service,'auto_job',None)
+        if not key or service.active!=key: return
+        try: service.cancel(key)
+        except ValueError: return
+        deadline=time.monotonic()+20
+        while service.active==key and time.monotonic()<deadline: time.sleep(.2)
 
     def _run(self,key,symbols,prefs,cancel):
         results=[]
@@ -373,7 +387,7 @@ class OptionsDesk:
             self.service.store.update(key,status='cancelled',message='Stopped; completed stock records kept',result=dict(stocks=results))
         finally:
             with self.service.lock:
-                self.service.active=None;self.service.events.pop(key,None)
+                self.service.active=None;self.service.auto_job=None;self.service.events.pop(key,None)
 
     def _closing_bars(self,symbol):
         """15:30-16:00 on a trading day: the provider's daily candle is not settled yet, so build today's

@@ -38,6 +38,7 @@ class ResearchService:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='kronos')
         self.lock = threading.Lock()
         self.active = None
+        self.auto_job = None      # key of the background forecast job, if that is what holds the slot
         self.events = {}
         from .monitor import DailyMonitor
         self.monitor = DailyMonitor(self)
@@ -52,6 +53,8 @@ class ResearchService:
         self.refresh = MarketRefresh(self)
         from .desk import FastDesk
         self.desk = FastDesk(self)
+        from .autoforecast import AutoForecast
+        self.autoforecast = AutoForecast(self)
         from .position_watch import PositionWatch
         self.watch = PositionWatch(self)
         from .sensibull import SensibullFeed
@@ -264,6 +267,7 @@ class ResearchService:
     def close(self):
         self.sensibull.close()
         self.desk.close_board_watch()
+        self.autoforecast.close()
         self.watch.close()
         self.refresh.close()
         self.monitor.close()
