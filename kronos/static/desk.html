@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Options Desk</title><link rel="stylesheet" href="/desk.css"><script defer src="/desk-math.js"></script><script defer src="/desk.js"></script><script defer src="/desk-oi.js"></script></head>
+<title>Options Desk</title><link rel="stylesheet" href="/desk.css"><script defer src="/desk-math.js"></script><script defer src="/desk.js"></script><script defer src="/desk-oi.js"></script><script defer src="/desk-trend.js"></script><link rel="stylesheet" href="/desk-trend.css"></head>
 <body>
 <header class="top">
   <div class="search">
@@ -31,6 +31,8 @@
     <button id="tab-chain" role="tab" aria-selected="true">Chain &amp; builder</button>
     <button id="tab-ai" role="tab" aria-selected="false">AI forecast</button>
     <button id="tab-ready" role="tab" aria-selected="false" title="F&amp;O stocks where a scanner pattern and Kronos agree">Ready to enter <b id="ready-count"></b></button>
+    <button id="tab-trend" role="tab" aria-selected="false" title="ADX/DMI setups on F&amp;O stocks with option spreads">ADX trend <b id="trend-count"></b></button>
+    <button id="tab-trend1h" role="tab" aria-selected="false" title="The ADX desk on 1-hour bars, with automatic paper trades. Kept apart from the daily ADX tab">ADX 1H <b id="trend1h-count"></b></button>
     <button id="tab-oi" role="tab" aria-selected="false" hidden title="Open interest from Sensibull, recorded locally">OI</button>
     <button id="tab-pos" role="tab" aria-selected="false">Positions <b id="pos-count"></b></button>
   </div>
@@ -90,6 +92,34 @@
   <div id="ready-events" class="ready-events" hidden></div>
   <div id="ready-list"></div>
   <p class="note">Price-level and forecast-agreement checks, not recommendations or measured win rates. Patterns confirm on a closing basis; Kronos paths are sampled scenarios. Nothing here runs the model: stocks without a recent forecast stay on Watch until you open them and run one. Open a row to see its chain, event dates and ready-made strategies.</p>
+</main>
+
+<main id="view-trend" class="positions trend" hidden>
+  <div class="pos-head"><h2>ADX trend</h2><span id="trend-meta" class="ready-meta"></span><button id="trend-notify" class="ghost" aria-pressed="false">🔔 Alerts</button><button id="trend-scan" class="ghost">Rescan</button></div>
+  <p class="ready-intro">ADX/DMI analysis of F&amp;O stocks on daily bars (settings 13, 8). Each setup is scored against the market, the weekly trend and your own results. Pick one, review the option position, paper trade it here. Open trades are watched every 20 seconds in market hours.</p>
+  <div id="trend-warn" class="trend-warn" hidden></div>
+  <div id="trend-market" class="trend-market" hidden></div>
+  <div class="ready-filters">
+    <div id="trend-views" class="seg" role="group" aria-label="Section"></div>
+    <div id="trend-verdicts" class="seg" role="group" aria-label="Show"></div>
+    <div id="trend-dirs" class="seg" role="group" aria-label="Direction"></div>
+  </div>
+  <div id="trend-body"><p class="empty">Loading the ADX tab… If this message does not go away, the page script did not run. Check that a browser extension or Brave Shields is not blocking this page, then reload.</p></div>
+  <p class="note">Rules from daily stock bars, not recommendations. Option ideas are one lot at live bid/ask; brokerage and charges apply. No Kronos forecast is used anywhere in this tab.</p>
+</main>
+
+<main id="view-trend1h" class="positions trend" hidden>
+  <div class="pos-head"><h2>ADX trend · 1 hour</h2><span id="trend1h-meta" class="ready-meta"></span><button id="trend1h-notify" class="ghost" aria-pressed="false">🔔 Alerts</button><button id="trend1h-scan" class="ghost">Rescan</button></div>
+  <p class="ready-intro">The same ADX/DMI rules (settings 13, 8) on completed 1-hour bars, with the daily chart as the bigger timeframe. 1-hour candles are fetched from the broker API after every completed hour and live prices are checked every 20 seconds in market hours. When a setup turns Enter on a live price, the recommended option position is paper traded automatically, one lot. Trades, record and lessons here are separate from the daily ADX tab.</p>
+  <div id="trend1h-warn" class="trend-warn" hidden></div>
+  <div id="trend1h-market" class="trend-market" hidden></div>
+  <div class="ready-filters">
+    <div id="trend1h-views" class="seg" role="group" aria-label="Section"></div>
+    <div id="trend1h-verdicts" class="seg" role="group" aria-label="Show"></div>
+    <div id="trend1h-dirs" class="seg" role="group" aria-label="Direction"></div>
+  </div>
+  <div id="trend1h-body"><p class="empty">Loading the ADX 1H tab…</p></div>
+  <p class="note">Rules from 1-hour stock bars, not recommendations. Automatic entries are paper trades only: one lot at live bid/ask, with brokerage and charges; no broker order is ever placed. A trade is timed out after 15 hourly bars. No Kronos forecast is used anywhere in this tab.</p>
 </main>
 
 <main id="view-oi" class="positions oi" hidden>

@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 
+from .options_journal import SEPARATE
 from .options_market import FYERS_COOLDOWN, IST, clock, market_open, number
 from .options_math import bs, book_fill, charges, fee, intrinsic, payoff_limits
 
@@ -121,7 +122,7 @@ class FastDesk:
             ai[a['symbol']] = dict(bias=f['bias'], lower=a.get('lower'), upper=a.get('upper'),
                                    median_end=f.get('median_end'), last_close=f.get('last_close'),
                                    created=a.get('created'), asof=f.get('asof'))
-        return dict(universe=universe, ideas=ideas, ai=ai, paper=options.journal.paper(), settings=options.journal.settings(),
+        return dict(universe=universe, ideas=ideas, ai=ai, paper=options.journal.paper(hide=SEPARATE), settings=options.journal.settings(),
                     market_open=market_open(), time=clock().isoformat())
 
     def chain(self, symbol, expiry=None):
@@ -583,6 +584,8 @@ class FastDesk:
                     sell += leg['entry_fill'] * units
             # One executed order per leg, as the broker would bill it.
             entry_charges = charges(buy, sell, len(legs), prefs['brokerage'])
+            if request.get('check'):
+                request['check'](legs, entry_charges)       # a desk may refuse the trade at the prices it would really get
             credit = round(sell - buy, 2)
             reserve = fee(buy+sell,buy+sell,len(legs),prefs['brokerage']) + (buy+sell)*prefs['slippage']
             summary = payoff_summary(legs, number(spot.get('ltp')), credit, sum(entry_charges.values())+reserve)
@@ -594,7 +597,13 @@ class FastDesk:
                         cost_estimate=round(sum(entry_charges.values())+reserve,2), **summary)
             payload = dict(symbol=symbol, plan=plan, legs=legs, prefs=prefs, entry_spot=number(spot.get('ltp')),
                            entry_time=clock().isoformat(), exit_by=exit_by, entry_credit=credit,
-                           entry_charges=entry_charges, research=False, accepted_warnings=[], source='desk', fill_model='market',
-                           note='Market-order paper fill: buys lift the live asks, sells hit the live bids, walking deeper levels if needed. '
+                           entry_charges=entry_charges, research=False, accepted_warnings=[],
+                           source='desk', fill_model='market',
+                           note=str(request.get('note_prefix') or '') + 'Market-order paper fill: buys lift the live asks, sells hit the live bids, walking deeper levels if needed. '
                                 'Brokerage per executed order plus exchange, STT, SEBI, GST and stamp charges.')
-            return options.journal.open('desk:' + uuid.uuid4().hex, 'custom', payload)
+            # A desk that manages its own trades (the ADX desks) hands over its record here, so it is saved
+            # in the same write that opens the trade and the trade is never visible without it.
+            payload.update(request.get('extra') or {})
+            plan.update(request.get('plan_extra') or {})
+            payload['plan'] = plan
+            return options.journal.open('desk:' + uuid.uuid4().hex, 'custom', payload, cap=request.get('cap'))

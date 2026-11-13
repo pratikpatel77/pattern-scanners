@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from .engine import forecast, check_cancel, Cancelled
-from .options_journal import OptionsJournal, paper_stats, summarise
+from .options_journal import OptionsJournal, SEPARATE, paper_stats, summarise
 from .options_sources import ContextSources
 from .options_market import LiveMarket, clock, market_open, number
 from .options_math import analyse_structure, book_fill, candidates, entry, fee, fill, charges, underlying_stop, reward_reasons, REWARD_REASONS
@@ -86,7 +86,7 @@ class OptionsDesk:
         from datalayer import config
         forecasts=self.journal.forecasts()
         scored=[r['outcome'] for r in forecasts if r['outcome'] and r['outcome'].get('direction_correct') is not None]
-        paper=self.journal.paper()
+        paper=self.journal.paper(hide=SEPARATE)
         return dict(settings=prefs,login_ready=bool(config.get('FYERS_APP_ID') and config.get('FYERS_ACCESS_TOKEN')),
             market_open=market_open(),time=clock().isoformat(),active=self.service.active,
             paper=paper,stats=paper_stats(paper),analyses=[self.compact(a) for a in self.journal.analyses() if a.get('status')!='Stock only'],

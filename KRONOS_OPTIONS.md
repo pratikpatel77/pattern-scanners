@@ -137,3 +137,9 @@ Server reload note: Python backend changes require restarting the actual launche
 - Show the next 90 days even if an event is after the holding date. Events within the holding period retain the entry flag. Each row shows date, days away, trade-period relationship and source links. Individual source failures show partial coverage, never an all-clear calendar.
 - Saved analyses load current context without rerunning the model. Repricing also uses current IVP context. Existing recorded paper trades retain their original assumptions.
 - Verified DIVISLAB IVP 94.33 (29 Oct, 247 observations) and results on 7 Nov; SBIN IVP 73.68 and results on 3 Nov. ANANDRATHI's reported IVP 5 has only 20 observations and is excluded from ranking. These source observations are not profitability evidence.
+
+## ADX trend tab — 11 November 2026
+
+A separate, Kronos-independent tab: ADX/DMI analysis of F&O stocks, option position selection, paper trading with exit guidance, and learning from your own closed trades. Full documentation is in [docs/adx/](docs/adx/README.md).
+
+Version 2.9.0 adds a decision layer: a market read, a 0-100 score and a Take/Wait/Pass call for each setup, a trailing stop and adjustment advice for open trades, a background watcher that checks every 20 seconds, and learning from reviewed mistakes. See [docs/adx/6-decision-layer.md](docs/adx/6-decision-layer.md).

@@ -926,14 +926,17 @@ document.addEventListener('click', async e => {
 function view(name) {
   S.view = name;
   $('view-chain').hidden = name === 'pos' || name === 'ready' || name === 'oi'; $('view-pos').hidden = name !== 'pos'; $('view-ready').hidden = name !== 'ready'; $('view-oi').hidden = name !== 'oi';
+  $('view-chain').hidden ||= name === 'trend' || name === 'trend1h'; $('view-trend').hidden = name !== 'trend'; $('view-trend1h').hidden = name !== 'trend1h';
   document.querySelector('.chain-pane').hidden = name !== 'chain'; $('ai-pane').hidden = name !== 'ai';
-  for (const [id, v] of [['tab-chain', 'chain'], ['tab-ai', 'ai'], ['tab-ready', 'ready'], ['tab-oi', 'oi'], ['tab-pos', 'pos']]) $(id).setAttribute('aria-selected', name === v);
+  for (const [id, v] of [['tab-chain', 'chain'], ['tab-ai', 'ai'], ['tab-ready', 'ready'], ['tab-oi', 'oi'], ['tab-trend', 'trend'], ['tab-trend1h', 'trend1h'], ['tab-pos', 'pos']]) $(id).setAttribute('aria-selected', name === v);
+  if (name === 'trend') window.openTrend?.();
+  if (name === 'trend1h') window.openTrend1h?.();
   if (name === 'ready') pollReady();
   if (name === 'oi') window.openOI?.();
   if (name === 'pos') pollPositions();
-  else if (name !== 'ready' && name !== 'oi') { if (S.legs.length) renderSummary(); if (name === 'ai') renderAIPane(); else setTimeout(centreATM); }
+  else if (name !== 'ready' && name !== 'oi' && name !== 'trend' && name !== 'trend1h') { if (S.legs.length) renderSummary(); if (name === 'ai') renderAIPane(); else setTimeout(centreATM); }
 }
-$('tab-chain').onclick = () => view('chain'); $('tab-ai').onclick = () => view('ai'); $('tab-pos').onclick = () => view('pos'); $('tab-ready').onclick = () => view('ready'); $('tab-oi').onclick = () => view('oi');
+$('tab-chain').onclick = () => view('chain'); $('tab-ai').onclick = () => view('ai'); $('tab-pos').onclick = () => view('pos'); $('tab-ready').onclick = () => view('ready'); $('tab-oi').onclick = () => view('oi'); $('tab-trend').onclick = () => view('trend'); $('tab-trend1h').onclick = () => view('trend1h');
 
 // ---------- ready to enter: scanner pattern + Kronos agreement across all F&O stocks ----------
 const READY = {ripe: ['Ready', 'Pattern at its trigger and Kronos agrees'], watch: ['Watch', 'Close, but one check is missing'], wait: ['Not yet', 'Waiting for price or a forecast'], skip: ['Skipped', 'Kronos disagrees, price ran past the entry or the stop broke']};
@@ -1204,7 +1207,7 @@ new ResizeObserver(() => { cancelAnimationFrame(redraw); redraw = requestAnimati
 new ResizeObserver(() => { if (S.view === 'ai') { cancelAnimationFrame(redraw); redraw = requestAnimationFrame(renderAIPane); } }).observe($('ai-chart'));
 
 // ---------- start ----------
-const DESK_VERSION = '2.7.0';   // must match /api/health; a mismatch means the app window is running older code
+const DESK_VERSION = '2.9.5';   // must match /api/health; a mismatch means the app window is running older code
 function restartBanner() {
   const el = document.createElement('div'); el.className = 'restart';
   el.innerHTML = '<b>Restart needed.</b> The app window is running an older version, so some features will not work. Close the black "Pattern Scanner - SAI Research" window and run <b>Run Pattern Scanners.bat</b> again.';

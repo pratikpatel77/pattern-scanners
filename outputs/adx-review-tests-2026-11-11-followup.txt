@@ -1,0 +1,17 @@
+...........................................................................................F.....................................Kronos error: Kronos outputs must not overwrite original scanner results or the input CSV
+.....................................................................................................................................................................
+======================================================================
+FAIL: test_first_pass_is_a_baseline_then_changes_are_logged (test_entry_board.TrackingTests.test_first_pass_is_a_baseline_then_changes_are_logged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\LENOVO\Documents\API's\Scanners\pattern-scanners\tests\test_entry_board.py", line 170, in test_first_pass_is_a_baseline_then_changes_are_logged
+    self.assertEqual(first['entries'][0]['verdict'], 'ripe')
+AssertionError: 'watch' != 'ripe'
+- watch
++ ripe
+
+
+----------------------------------------------------------------------
+Ran 294 tests in 23.121s
+
+FAILED (failures=1)

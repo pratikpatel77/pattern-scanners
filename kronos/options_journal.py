@@ -26,6 +26,24 @@ def summarise(value):
     return row
 
 
+def keep_peak(saved,incoming):
+    """An ADX trade's `high_water` (best stock price since entry) only ever moves in its favour: the higher
+    of the saved and incoming value for a bullish trade, the lower for a bearish one."""
+    new_adx=incoming.get('adx')
+    if not isinstance(new_adx,dict): return incoming
+    saved_adx=(saved or {}).get('adx') or {}
+    keep={}
+    # A confirmed stop breach is a fact about the past: no later snapshot may erase it.
+    if saved_adx.get('breach') and not new_adx.get('breach'): keep['breach']=saved_adx['breach']
+    old=saved_adx.get('high_water')
+    new=new_adx.get('high_water')
+    side=new_adx.get('direction') or saved_adx.get('direction')
+    if old is not None and side in ('bullish','bearish'):
+        best=old if new is None else (max(old,new) if side=='bullish' else min(old,new))
+        if best!=new: keep['high_water']=best
+    return {**incoming,'adx':{**new_adx,**keep}} if keep else incoming
+
+
 def paper_stats(trades):
     """Realised results use closing marks only; open marks are snapshots, never realised P&L."""
     opened=[t for t in trades if t['status']=='open']
@@ -70,6 +88,9 @@ def paper_stats(trades):
         note='Paper results from fresh bid/ask marks (buys at ask, sells at bid) and estimated charges. Small samples are not evidence of an edge.')
 
 
+SEPARATE=('adx1h',)   # trade sources kept out of the shared Positions tab and its statistics; they have their own tab and backup file
+
+
 class OptionsJournal:
     def __init__(self,store):
         self.store=store
@@ -109,6 +130,15 @@ class OptionsJournal:
                 with open(temp,'w',encoding='utf-8') as f:
                     f.write(text);f.flush();os.fsync(f.fileno())
                 temp.replace(self.backup_dir/name)
+            # The 1-hour ADX journal also gets a file of its own (the combined copy above is what a restore reads).
+            own=[r for r in rows if r['payload'].get('source') in SEPARATE]
+            if own:
+                text=json.dumps(own,indent=1,allow_nan=False)
+                for name in ('adx_1h_trades.json',f"adx_1h_trades_{datetime.now().date()}.json"):
+                    temp=self.backup_dir/(name+'.tmp')
+                    with open(temp,'w',encoding='utf-8') as f:
+                        f.write(text);f.flush();os.fsync(f.fileno())
+                    temp.replace(self.backup_dir/name)
         except (OSError,ValueError):
             pass  # the database copy is authoritative; a failed backup must never block a trade
 
@@ -199,23 +229,32 @@ class OptionsJournal:
                               ORDER BY created DESC LIMIT 1""",(symbol,)).fetchone()
         return row[0] if row else None
 
-    def paper(self,key=None):
+    def paper(self,key=None,hide=()):
+        """Paper trades, newest first. `hide` lists trade sources left out of the list (never of a lookup by key)."""
+        marks=','.join('?'*len(hide))
         with self.store.connect() as db:
-            rows=db.execute('SELECT * FROM options_paper WHERE id=?',(key,)).fetchall() if key else db.execute('SELECT * FROM options_paper ORDER BY created DESC').fetchall()
+            if key: rows=db.execute('SELECT * FROM options_paper WHERE id=?',(key,)).fetchall()
+            elif hide: rows=db.execute(f"SELECT * FROM options_paper WHERE COALESCE(json_extract(payload,'$.source'),'') NOT IN ({marks}) ORDER BY created DESC",tuple(hide)).fetchall()
+            else: rows=db.execute('SELECT * FROM options_paper ORDER BY created DESC').fetchall()
         result=[{**dict(r),'payload':json.loads(r['payload'])} for r in rows]
         if key:
             if not result: raise ValueError('Paper trade not found.')
             return result[0]
         return result
 
-    def open(self,analysis,candidate,payload):
+    def open(self,analysis,candidate,payload,cap=None):
+        """`cap` is the most trades the payload's own book may have open; it is checked inside the write lock."""
         key=uuid.uuid4().hex
         with self.store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             rows=db.execute("SELECT payload FROM options_paper WHERE status='open'").fetchall()
-            opened=[json.loads(r[0]) for r in rows]
+            # One open trade per stock within a book: a separate book (the 1-hour ADX desk) neither blocks nor is blocked by the others.
+            book=lambda p:p.get('source') if p.get('source') in SEPARATE else ''
+            opened=[p for p in (json.loads(r[0]) for r in rows) if book(p)==book(payload)]
             if any(p['symbol']==payload['symbol'] for p in opened):
                 raise ValueError('A paper trade is already open for this stock.')
+            if cap and len(opened)>=cap:
+                raise ValueError(f'{cap} paper trades are already open here.')
             if db.execute('SELECT id FROM options_paper WHERE analysis=? AND candidate=?',(analysis,candidate)).fetchone():
                 raise ValueError('This idea has already been paper traded.')
             db.execute('INSERT INTO options_paper VALUES (?,?,?,?,?,?,?)',
@@ -229,8 +268,14 @@ class OptionsJournal:
             history=[*payload.get('marks',[]),dict(time=mark.get('time'),net_pnl=mark['net_pnl'],underlying=mark.get('underlying'))]
             payload={**payload,'marks':history[-500:]}
         with self.store.connect() as db:
-            changed=db.execute("UPDATE options_paper SET updated=?,status=?,payload=? WHERE id=? AND status='open'",
-                (stamp(),'closed' if close else 'open',encode(payload),key)).rowcount
-            if changed!=1: raise ValueError('This paper trade is already closed.')
+            # Callers hand back a payload they read earlier, sometimes before a slow network call. The saved
+            # trailing-stop peak is therefore re-read and merged inside this same write lock, so a stale
+            # snapshot (a Mark, a Close) can never loosen a stop that a newer update already tightened.
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute("SELECT payload FROM options_paper WHERE id=? AND status='open'",(key,)).fetchone()
+            if not row: raise ValueError('This paper trade is already closed.')
+            payload=keep_peak(json.loads(row[0]),payload)
+            db.execute("UPDATE options_paper SET updated=?,status=?,payload=? WHERE id=? AND status='open'",
+                (stamp(),'closed' if close else 'open',encode(payload),key))
         self._backup()
         return self.paper(key)

@@ -56,6 +56,10 @@ class ResearchService:
         self.watch = PositionWatch(self)
         from .sensibull import SensibullFeed
         self.sensibull = SensibullFeed(self.store)
+        from .adx_desk import AdxDesk
+        self.adx = AdxDesk(self)
+        from .adx_hour import AdxHourDesk
+        self.adx_hour = AdxHourDesk(self)      # the same desk on 1-hour bars, with its own trades and record
 
     def warm_fallback(self):
         """Log in to Definedge and load its option master in the background, so a FYERS failure fails over instantly."""
@@ -265,6 +269,8 @@ class ResearchService:
         self.sensibull.close()
         self.desk.close_board_watch()
         self.watch.close()
+        self.adx.close()
+        self.adx_hour.close()
         self.refresh.close()
         self.monitor.close()
         with self.lock:

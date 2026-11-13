@@ -1,0 +1,47 @@
+[
+  {
+    "check": "stale_board_auto_entry",
+    "behind": true,
+    "data_date": "2026-03-30 10:15:00",
+    "calls": 1
+  },
+  {
+    "check": "grade_C_entry_bypass",
+    "displayed_call": "Pass",
+    "fills": 1
+  },
+  {
+    "check": "event_credit_entry_bypass",
+    "displayed_call": "Pass",
+    "fills": 1
+  },
+  {
+    "check": "armed_entry_bypass",
+    "displayed_call": "Wait",
+    "fills": 1
+  },
+  {
+    "check": "stale_fetch_marked_complete",
+    "data_date": "2026-03-30 10:15:00",
+    "expected": "2026-11-13 15:15:00",
+    "stamp_current": true
+  },
+  {
+    "check": "incomplete_minute_history",
+    "input_minutes": 1,
+    "accepted_hourly_bars": 1
+  },
+  {
+    "check": "missed_stop_touch",
+    "stop": 95.0,
+    "post_entry_low": 94.0,
+    "current_price": 100.0,
+    "action": "hold"
+  },
+  {
+    "check": "expiry_inside_exit_window",
+    "days": 2.0,
+    "required_days": 6,
+    "best": "Buy OTM call"
+  }
+]

@@ -58,7 +58,7 @@ def create_server(service,port=8765):
             query=parse_qs(route.query)
             try:
                 if route.path=='/api/health':
-                    self.send(200,{'app':'kronos-research','version':'2.7.0'}); return
+                    self.send(200,{'app':'kronos-research','version':'2.9.5'}); return
                 if route.path=='/api/bootstrap':
                     self.send(200,{**service.bootstrap(),'token':token}); return
                 if route.path=='/api/shortlist':
@@ -93,6 +93,19 @@ def create_server(service,port=8765):
                     self.send(200,service.desk.context(query.get('symbol',[''])[0])); return
                 if route.path=='/api/desk/ltp':
                     self.send(200,service.desk.ltp(query.get('symbols',[''])[0].split(','))); return
+                # /api/trend/ is the daily ADX desk, /api/trend1h/ the same desk on 1-hour bars.
+                for base,adx in (('/api/trend/',service.adx),('/api/trend1h/',service.adx_hour)):
+                    if not route.path.startswith(base): continue
+                    name=route.path[len(base):]
+                    if name=='board':
+                        self.send(200,adx.view('board')); return
+                    if name=='detail':
+                        self.send(200,adx.view('detail',query.get('symbol',[''])[0],query.get('signal',[''])[0])); return
+                    if name=='trades':
+                        self.send(200,adx.view('trades')); return
+                    if name=='alerts':
+                        after=query.get('after',['0'])[0]
+                        self.send(200,adx.view('alerts',int(after) if after.isdigit() else 0)); return
                 if route.path=='/api/sensibull/status':
                     self.send(200,service.sensibull.status()); return
                 if route.path=='/api/sensibull/oi':
@@ -211,6 +224,10 @@ def create_server(service,port=8765):
                 elif self.path=='/api/desk/monitor/check':
                     trade=str(request.get('id') or '') or None
                     self.send(200,{'positions':service.watch.check(only=trade,force=bool(request.get('force')))})
+                elif self.path in ('/api/trend/scan','/api/trend1h/scan'):
+                    self.send(202,(service.adx_hour if '1h' in self.path else service.adx).start())
+                elif self.path in ('/api/trend/paper','/api/trend1h/paper'):
+                    self.send(200,(service.adx_hour if '1h' in self.path else service.adx).paper(request))
                 elif self.path=='/api/desk/preflight':
                     self.send(200,service.desk.preflight(request))
                 elif self.path=='/api/desk/paper':
@@ -265,6 +282,8 @@ def main(argv=None):
     service.store.recover()
     service.monitor.start()
     service.watch.start()
+    service.adx.watch()
+    service.adx_hour.watch()
     service.desk.start_board_watch()
     service.sensibull.start()
     service.warm_fallback()

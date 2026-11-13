@@ -209,7 +209,8 @@ class PositionWatch:
     # ---------- one pass ----------
     def check(self, only=None, refresh=True, force=False):
         options = self.service.options
-        trades = [t for t in options.journal.paper() if t['status'] == 'open' and (only is None or t['id'] == only)]
+        trades = [t for t in options.journal.paper() if t['status'] == 'open' and (only is None or t['id'] == only)
+                  and t['payload'].get('source') not in ('adx', 'adx1h')]   # ADX trades follow their own stock stop, never a Kronos forecast
         saved = self.saved()
         results = {}
         if not trades:
